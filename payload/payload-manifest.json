@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1",
+  "architecture": "x64",
+  "engines": [
+    {
+      "engine": "Paqet",
+      "version": "v1.0.0-alpha.21",
+      "entryPoint": "engines/paqet/x64/paqet_windows_amd64.exe",
+      "files": [
+        {
+          "path": "engines/paqet/x64/paqet_windows_amd64.exe",
+          "size": 9562112,
+          "sha256": "7d73f5130757b538c26c3ed76439a150978c3e06289c724de37d916789aaf5dc"
+        }
+      ]
+    },
+    {
+      "engine": "Xray",
+      "version": "26.3.27",
+      "entryPoint": "engines/xray/x64/xray.exe",
+      "files": [
+        {
+          "path": "engines/xray/x64/xray.exe",
+          "size": 35613696,
+          "sha256": "15c2d007954ac53ba69b80ec91242786b3c0b71d52649165b4ca1d5cc96ef8f1"
+        },
+        {
+          "path": "engines/xray/x64/geoip.dat",
+          "size": 19768301,
+          "sha256": "744c97b74c52bae2ac8664fef6ac481d7765cb8432a0df54f0368a88b9b4a354"
+        },
+        {
+          "path": "engines/xray/x64/geosite.dat",
+          "size": 10491954,
+          "sha256": "adf92de0cfc70e458b399f04c5f912bf42d115ed7e37281b30e2f1c68605e4e9"
+        }
+      ]
+    },
+    {
+      "engine": "ProxiFyre",
+      "version": "2.6.0",
+      "entryPoint": "engines/proxifyre/x64/ProxiFyre.exe",
+      "serviceName": "ProxiFyreService",
+      "files": [
+        {
+          "path": "engines/proxifyre/x64/app-config.sample.json",
+          "size": 633,
+          "sha256": "276d7fc27e90d1452e290e0c9945ffd8fd1817af642170073d39f24b69a89e15"
+        },
+        {
+          "path": "engines/proxifyre/x64/Newtonsoft.Json.dll",
+          "size": 711952,
+          "sha256": "e1e27af7b07eeedf5ce71a9255f0422816a6fc5849a483c6714e1b472044fa9d"
+        },
+        {
+          "path": "engines/proxifyre/x64/NLog.config",
+          "size": 379,
+          "sha256": "bb92b3cf996d7dbcf1b94b34228f80478dd569e2cc84d44bdd994d08018917dc"
+        },
+        {
+          "path": "engines/proxifyre/x64/NLog.dll",
+          "size": 940032,
+          "sha256": "4b1d3cf9f1f3c4a6ead141243069162172e9ef48ba1a9bf4f7ccd618b8194b5c"
+        },
+        {
+          "path": "engines/proxifyre/x64/ProxiFyre.Configuration.dll",
+          "size": 55296,
+          "sha256": "6b477f868233050aaed0c2ddb6d82fda50a6aec38009d61f2099494b046728d3"
+        },
+        {
+          "path": "engines/proxifyre/x64/ProxiFyre.exe",
+          "size": 105984,
+          "sha256": "eaa48f0efc0dfbbab6f4ea6fc2ff6c7b45164dca544921962025b698bd59869f"
+        },
+        {
+          "path": "engines/proxifyre/x64/ProxiFyre.exe.config",
+          "size": 176,
+          "sha256": "feb7b159597d51a915d659a56599aa74d8b2104056b9e77f7fd9e1992600eeb4"
+        },
+        {
+          "path": "engines/proxifyre/x64/socksify.dll",
+          "size": 1831936,
+          "sha256": "60b81a761ce19817063e146dec607243195ba6e27a7bab6b37b53dc1bf3fd505"
+        },
+        {
+          "path": "engines/proxifyre/x64/Topshelf.dll",
+          "size": 190464,
+          "sha256": "bd70a5832124e36840452ff46e442efa0a09a4ceba842aea72c79b2d322d7fe8"
+        }
+      ]
+    }
+  ],
+  "prerequisites": [
+    {
+      "id": "npcap",
+      "version": "1.80+",
+      "acquisition": "officialDownload",
+      "licenseNotice": "Npcap Free cannot be redistributed. PaqetFire accepts a separately licensed Npcap OEM payload or an existing user installation.",
+      "officialUri": "https://npcap.com/#download"
+    },
+    {
+      "id": "winpkfilter",
+      "version": "3.6.2+",
+      "acquisition": "officialDownload",
+      "licenseNotice": "Windows Packet Filter is maintained by NT Kernel Resources and is required by ProxiFyre.",
+      "officialUri": "https://github.com/wiresock/ndisapi/releases/tag/v3.6.2"
+    }
+  ]
+}

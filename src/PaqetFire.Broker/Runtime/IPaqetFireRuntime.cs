@@ -1,0 +1,19 @@
+using PaqetFire.Core.Configuration;
+using PaqetFire.Core.Ipc;
+
+namespace PaqetFire.Broker.Runtime;
+
+public interface IPaqetFireRuntime
+{
+    ValueTask InitializeAsync(CancellationToken cancellationToken);
+
+    ValueTask<BrokerSnapshot> GetSnapshotAsync(CancellationToken cancellationToken);
+
+    ValueTask<BrokerSnapshot> SaveSettingsAsync(
+        PaqetFireSettings settings,
+        CancellationToken cancellationToken);
+
+    ValueTask<BrokerSnapshot> ConnectAsync(CancellationToken cancellationToken);
+
+    ValueTask<BrokerSnapshot> DisconnectAsync(CancellationToken cancellationToken);
+}

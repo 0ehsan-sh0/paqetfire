@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1",
+  "architecture": "x64",
+  "engines": [
+    {
+      "engine": "Paqet",
+      "version": "PIN_AT_RELEASE_TIME",
+      "entryPoint": "engines/paqet/x64/paqet.exe",
+      "files": [
+        {
+          "path": "engines/paqet/x64/paqet.exe",
+          "size": 0,
+          "sha256": "REQUIRED"
+        }
+      ]
+    },
+    {
+      "engine": "ProxiFyre",
+      "version": "PIN_AT_RELEASE_TIME",
+      "entryPoint": "engines/proxifyre/x64/ProxiFyre.exe",
+      "serviceName": "PaqetFire.ProxiFyre",
+      "files": []
+    }
+  ],
+  "prerequisites": []
+}

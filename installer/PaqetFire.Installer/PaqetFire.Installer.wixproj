@@ -1,0 +1,19 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <PropertyGroup>
+    <AcceptEula>wix7</AcceptEula>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName>PaqetFire-0.6.4-x64</OutputName>
+    <OutputPath>..\..\artifacts\installer\</OutputPath>
+    <!-- .NET 10 native runtime files expose non-MSI language metadata. -->
+    <SuppressIces>ICE03</SuppressIces>
+    <DesktopPublishDir>$(MSBuildThisFileDirectory)..\..\artifacts\publish\win-x64\desktop</DesktopPublishDir>
+    <BrokerPublishDir>$(MSBuildThisFileDirectory)..\..\artifacts\publish\win-x64\broker</BrokerPublishDir>
+    <DefineConstants>DesktopPublishDir=$(DesktopPublishDir);BrokerPublishDir=$(BrokerPublishDir)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="7.0.0" />
+  </ItemGroup>
+</Project>

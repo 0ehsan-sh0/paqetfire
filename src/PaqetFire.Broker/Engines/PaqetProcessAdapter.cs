@@ -1,0 +1,687 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using PaqetFire.Core.Engines;
+
+namespace PaqetFire.Broker.Engines;
+
+public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
+{
+    private static readonly TimeSpan ForceKillTimeout = TimeSpan.FromSeconds(5);
+    private readonly object _stateLock = new();
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly Queue<PaqetProcessLogEntry> _logs = new();
+    private readonly ValidatedOptions _options;
+    private Process? _process;
+    private Task _standardOutputPump = Task.CompletedTask;
+    private Task _standardErrorPump = Task.CompletedTask;
+    private EngineState _state = EngineState.Stopped;
+    private string? _detail;
+    private DateTimeOffset _changedAt = DateTimeOffset.UtcNow;
+    private bool _expectedExit;
+    private bool _disposed;
+
+    public PaqetProcessAdapter(PaqetProcessOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _options = ValidateOptions(options);
+    }
+
+    public EngineKind Kind => EngineKind.Paqet;
+
+    public ValueTask<EngineStatus> GetStatusAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        lock (_stateLock)
+        {
+            RefreshExitedProcessState();
+            return ValueTask.FromResult(new EngineStatus(
+                Kind,
+                _state,
+                _options.Version,
+                FormatEndpoint(_options.SocksEndpoint),
+                _detail,
+                _changedAt));
+        }
+    }
+
+    public async ValueTask StartAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            lock (_stateLock)
+            {
+                RefreshExitedProcessState();
+                if (_state == EngineState.Running && _process is not null)
+                {
+                    return;
+                }
+            }
+
+            try
+            {
+                await ValidateFilesAtStartAsync(cancellationToken).ConfigureAwait(false);
+                if (await IsEndpointOccupiedAsync(_options.SocksEndpoint, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException(
+                        $"The configured Paqet SOCKS5 endpoint {FormatEndpoint(_options.SocksEndpoint)} " +
+                        "is already in use. Stop the other listener or choose another port.");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                SetState(EngineState.Stopped, "Paqet startup was cancelled before launch.");
+                throw;
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or InvalidOperationException or
+                    CryptographicException)
+            {
+                SetState(EngineState.Faulted, error.Message);
+                throw;
+            }
+
+            SetState(EngineState.Starting, "Waiting for the local SOCKS5 listener.");
+
+            var process = CreateProcess();
+            try
+            {
+                if (!process.Start())
+                {
+                    throw new InvalidOperationException("Windows did not start the bundled Paqet process.");
+                }
+
+                lock (_stateLock)
+                {
+                    _process = process;
+                    _expectedExit = false;
+                }
+
+                process.EnableRaisingEvents = true;
+                process.Exited += HandleProcessExited;
+                _standardOutputPump = PumpLogAsync(process.StandardOutput, isError: false);
+                _standardErrorPump = PumpLogAsync(process.StandardError, isError: true);
+
+                await WaitForSocksReadinessAsync(process, cancellationToken).ConfigureAwait(false);
+                SetState(EngineState.Running, "Paqet is accepting SOCKS5 connections.");
+            }
+            catch (Exception error)
+            {
+                await TerminateOwnedProcessAsync(process).ConfigureAwait(false);
+                ClearOwnedProcess(process);
+
+                if (error is OperationCanceledException)
+                {
+                    SetState(EngineState.Stopped, "Paqet startup was cancelled and cleaned up.");
+                    throw;
+                }
+
+                SetState(EngineState.Faulted, error.Message);
+                throw;
+            }
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    public async ValueTask StopAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            Process? process;
+            lock (_stateLock)
+            {
+                RefreshExitedProcessState();
+                process = _process;
+                if (process is null)
+                {
+                    SetStateUnsafe(EngineState.Stopped, "Paqet is stopped.");
+                    return;
+                }
+
+                _expectedExit = true;
+                SetStateUnsafe(EngineState.Stopping, "Stopping the bundled Paqet process.");
+            }
+
+            try
+            {
+                await StopOwnedProcessAsync(process, cancellationToken).ConfigureAwait(false);
+                ClearOwnedProcess(process);
+                SetState(EngineState.Stopped, "Paqet is stopped.");
+            }
+            catch (OperationCanceledException)
+            {
+                await TerminateOwnedProcessAsync(process).ConfigureAwait(false);
+                ClearOwnedProcess(process);
+                SetState(EngineState.Stopped, "Paqet shutdown was cancelled; its process tree was terminated.");
+                throw;
+            }
+            catch (Exception error)
+            {
+                await TerminateOwnedProcessAsync(process).ConfigureAwait(false);
+                ClearOwnedProcess(process);
+                SetState(EngineState.Faulted, error.Message);
+                throw;
+            }
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    public IReadOnlyList<PaqetProcessLogEntry> GetRecentLogs()
+    {
+        lock (_stateLock)
+        {
+            return [.. _logs];
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            Process? process;
+            lock (_stateLock)
+            {
+                process = _process;
+                _expectedExit = true;
+            }
+
+            if (process is not null)
+            {
+                await TerminateOwnedProcessAsync(process).ConfigureAwait(false);
+                ClearOwnedProcess(process);
+            }
+
+            _disposed = true;
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+            _lifecycleGate.Dispose();
+        }
+    }
+
+    private Process CreateProcess()
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _options.ExecutablePath,
+            WorkingDirectory = Path.GetDirectoryName(_options.ExecutablePath)!,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = false,
+        };
+        startInfo.ArgumentList.Add("run");
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(_options.ConfigurationPath);
+
+        return new Process { StartInfo = startInfo };
+    }
+
+    private async Task PumpLogAsync(StreamReader reader, bool isError)
+    {
+        try
+        {
+            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            {
+                if (line.Length > _options.MaximumLogLineLength)
+                {
+                    line = string.Concat(
+                        line.AsSpan(0, _options.MaximumLogLineLength),
+                        "…");
+                }
+
+                lock (_stateLock)
+                {
+                    _logs.Enqueue(new PaqetProcessLogEntry(DateTimeOffset.UtcNow, isError, line));
+                    while (_logs.Count > _options.MaximumLogEntries)
+                    {
+                        _logs.Dequeue();
+                    }
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Process teardown can close redirected streams while a read is pending.
+        }
+        catch (IOException error)
+        {
+            lock (_stateLock)
+            {
+                _logs.Enqueue(new PaqetProcessLogEntry(
+                    DateTimeOffset.UtcNow,
+                    true,
+                    $"Log stream ended unexpectedly: {error.Message}"));
+                while (_logs.Count > _options.MaximumLogEntries)
+                {
+                    _logs.Dequeue();
+                }
+            }
+        }
+    }
+
+    private async Task WaitForSocksReadinessAsync(
+        Process process,
+        CancellationToken cancellationToken)
+    {
+        using var readinessTimeout = new CancellationTokenSource(_options.ReadinessTimeout);
+        using var readinessCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            readinessTimeout.Token);
+
+        while (true)
+        {
+            if (process.HasExited)
+            {
+                throw new InvalidOperationException(
+                    $"Paqet exited with code {process.ExitCode} before its SOCKS5 listener became ready.");
+            }
+
+            try
+            {
+                if (await ProbeSocks5Async(_options.SocksEndpoint, readinessCancellation.Token)
+                    .ConfigureAwait(false))
+                {
+                    return;
+                }
+            }
+            catch (OperationCanceledException) when (
+                readinessTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Paqet did not expose a SOCKS5 listener at {FormatEndpoint(_options.SocksEndpoint)} " +
+                    $"within {_options.ReadinessTimeout}.");
+            }
+            catch (SocketException)
+            {
+                // The listener is expected to refuse connections during startup.
+            }
+            catch (IOException)
+            {
+                // A listener that does not complete a SOCKS greeting is not ready yet.
+            }
+
+            try
+            {
+                await Task.Delay(_options.ProbeInterval, readinessCancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                readinessTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Paqet did not expose a SOCKS5 listener at {FormatEndpoint(_options.SocksEndpoint)} " +
+                    $"within {_options.ReadinessTimeout}.");
+            }
+        }
+    }
+
+    private static async ValueTask<bool> ProbeSocks5Async(
+        IPEndPoint endpoint,
+        CancellationToken cancellationToken)
+    {
+        using var client = new TcpClient(endpoint.AddressFamily);
+        await client.ConnectAsync(endpoint.Address, endpoint.Port, cancellationToken).ConfigureAwait(false);
+
+        await using var stream = client.GetStream();
+        var greeting = new byte[] { 0x05, 0x01, 0x00 };
+        await stream.WriteAsync(greeting, cancellationToken).ConfigureAwait(false);
+
+        var response = new byte[2];
+        await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
+        return response[0] == 0x05 && response[1] == 0x00;
+    }
+
+    private static async ValueTask<bool> IsEndpointOccupiedAsync(
+        IPEndPoint endpoint,
+        CancellationToken cancellationToken)
+    {
+        using var probeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(350));
+        using var probeCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            probeTimeout.Token);
+        using var client = new TcpClient(endpoint.AddressFamily);
+        try
+        {
+            await client.ConnectAsync(endpoint.Address, endpoint.Port, probeCancellation.Token)
+                .ConfigureAwait(false);
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        catch (OperationCanceledException) when (
+            probeTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    private async Task StopOwnedProcessAsync(Process process, CancellationToken cancellationToken)
+    {
+        if (process.HasExited)
+        {
+            await AwaitLogPumpsAsync().ConfigureAwait(false);
+            return;
+        }
+
+        if (!process.CloseMainWindow())
+        {
+            await TerminateOwnedProcessAsync(process).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return;
+        }
+
+        using var gracefulTimeout = new CancellationTokenSource(_options.ShutdownTimeout);
+        using var gracefulCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            gracefulTimeout.Token);
+
+        try
+        {
+            await process.WaitForExitAsync(gracefulCancellation.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (
+            gracefulTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            await TerminateOwnedProcessAsync(process).ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await AwaitLogPumpsAsync().ConfigureAwait(false);
+    }
+
+    private async Task TerminateOwnedProcessAsync(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            using var timeout = new CancellationTokenSource(ForceKillTimeout);
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+            await AwaitLogPumpsAsync().WaitAsync(ForceKillTimeout).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            // The owned process exited between the state check and termination.
+        }
+        catch (OperationCanceledException error)
+        {
+            throw new TimeoutException("The owned Paqet process tree did not terminate in time.", error);
+        }
+    }
+
+    private async Task AwaitLogPumpsAsync()
+    {
+        await Task.WhenAll(_standardOutputPump, _standardErrorPump).ConfigureAwait(false);
+    }
+
+    private void HandleProcessExited(object? sender, EventArgs eventArgs)
+    {
+        if (sender is not Process process)
+        {
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            if (!ReferenceEquals(_process, process) || _expectedExit)
+            {
+                return;
+            }
+
+            SetStateUnsafe(
+                EngineState.Faulted,
+                $"Paqet exited unexpectedly with code {TryGetExitCode(process)}.");
+        }
+    }
+
+    private void RefreshExitedProcessState()
+    {
+        if (_process is null || !_process.HasExited || _expectedExit)
+        {
+            return;
+        }
+
+        SetStateUnsafe(
+            EngineState.Faulted,
+            $"Paqet exited unexpectedly with code {TryGetExitCode(_process)}.");
+    }
+
+    private void ClearOwnedProcess(Process process)
+    {
+        lock (_stateLock)
+        {
+            if (ReferenceEquals(_process, process))
+            {
+                _process = null;
+                _expectedExit = false;
+            }
+        }
+
+        process.Exited -= HandleProcessExited;
+        process.Dispose();
+    }
+
+    private async ValueTask ValidateFilesAtStartAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(_options.ExecutablePath))
+        {
+            throw new FileNotFoundException(
+                "The validated bundled Paqet executable is missing.",
+                _options.ExecutablePath);
+        }
+
+        if (!File.Exists(_options.ConfigurationPath))
+        {
+            throw new FileNotFoundException(
+                "The validated Paqet configuration is missing.",
+                _options.ConfigurationPath);
+        }
+
+        EnsureNotReparsePoint(_options.ExecutablePath, "Paqet executable");
+        EnsureNotReparsePoint(_options.ConfigurationPath, "Paqet configuration");
+
+        if (_options.ExpectedExecutableSha256 is { } expectedDigest)
+        {
+            await using var stream = new FileStream(
+                _options.ExecutablePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                128 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var digest = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+            if (!CryptographicOperations.FixedTimeEquals(
+                    digest,
+                    Convert.FromHexString(expectedDigest)))
+            {
+                throw new InvalidDataException(
+                    "The bundled Paqet executable failed its pre-launch integrity check.");
+            }
+        }
+    }
+
+    private static void EnsureNotReparsePoint(string path, string label)
+    {
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new UnauthorizedAccessException($"The {label} cannot be a reparse point.");
+        }
+    }
+
+    private void SetState(EngineState state, string? detail)
+    {
+        lock (_stateLock)
+        {
+            SetStateUnsafe(state, detail);
+        }
+    }
+
+    private void SetStateUnsafe(EngineState state, string? detail)
+    {
+        _state = state;
+        _detail = detail;
+        _changedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static int TryGetExitCode(Process process)
+    {
+        try
+        {
+            return process.ExitCode;
+        }
+        catch (InvalidOperationException)
+        {
+            return -1;
+        }
+    }
+
+    private static ValidatedOptions ValidateOptions(PaqetProcessOptions options)
+    {
+        var executablePath = ValidateContainedPath(
+            options.ExecutablePath,
+            options.TrustedExecutableRoot,
+            nameof(options.ExecutablePath));
+        var configurationPath = ValidateContainedPath(
+            options.ConfigurationPath,
+            options.TrustedConfigurationRoot,
+            nameof(options.ConfigurationPath));
+
+        if (!string.Equals(Path.GetExtension(executablePath), ".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The Paqet entry point must be a Windows executable.", nameof(options));
+        }
+
+        var configurationExtension = Path.GetExtension(configurationPath);
+        if (!string.Equals(configurationExtension, ".yaml", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(configurationExtension, ".yml", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The Paqet configuration must be a YAML file.", nameof(options));
+        }
+
+        if (!IPAddress.IsLoopback(options.SocksEndpoint.Address) || options.SocksEndpoint.Port is <= 0 or > 65535)
+        {
+            throw new ArgumentException("The Paqet SOCKS endpoint must be a valid loopback endpoint.", nameof(options));
+        }
+
+        ValidateFinitePositive(options.ReadinessTimeout, nameof(options.ReadinessTimeout));
+        ValidateFinitePositive(options.ShutdownTimeout, nameof(options.ShutdownTimeout));
+        ValidateFinitePositive(options.ProbeInterval, nameof(options.ProbeInterval));
+
+        if (options.MaximumLogEntries is < 1 or > 10_000)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "MaximumLogEntries must be between 1 and 10,000.");
+        }
+
+        if (options.MaximumLogLineLength is < 64 or > 65_536)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "MaximumLogLineLength must be between 64 and 65,536.");
+        }
+
+        string? expectedExecutableSha256 = null;
+        if (!string.IsNullOrWhiteSpace(options.ExpectedExecutableSha256))
+        {
+            expectedExecutableSha256 = options.ExpectedExecutableSha256.Trim();
+            if (expectedExecutableSha256.Length != 64 ||
+                !expectedExecutableSha256.All(Uri.IsHexDigit))
+            {
+                throw new ArgumentException(
+                    "The expected Paqet executable SHA-256 is invalid.",
+                    nameof(options));
+            }
+        }
+
+        return new ValidatedOptions(
+            executablePath,
+            configurationPath,
+            new IPEndPoint(options.SocksEndpoint.Address, options.SocksEndpoint.Port),
+            options.Version,
+            expectedExecutableSha256,
+            options.ReadinessTimeout,
+            options.ShutdownTimeout,
+            options.ProbeInterval,
+            options.MaximumLogEntries,
+            options.MaximumLogLineLength);
+    }
+
+    private static string ValidateContainedPath(string path, string root, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+
+        if (!Path.IsPathFullyQualified(path) || !Path.IsPathFullyQualified(root))
+        {
+            throw new ArgumentException("Engine paths and trusted roots must be fully qualified.", parameterName);
+        }
+
+        var resolvedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var resolvedPath = Path.GetFullPath(path);
+        if (!resolvedPath.StartsWith(resolvedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The engine path escapes its trusted root.", parameterName);
+        }
+
+        return resolvedPath;
+    }
+
+    private static void ValidateFinitePositive(TimeSpan value, string parameterName)
+    {
+        if (value <= TimeSpan.Zero || value == Timeout.InfiniteTimeSpan || value > TimeSpan.FromMinutes(5))
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Timeouts must be positive, finite, and no longer than five minutes.");
+        }
+    }
+
+    private static string FormatEndpoint(IPEndPoint endpoint) =>
+        endpoint.AddressFamily == AddressFamily.InterNetworkV6
+            ? $"[{endpoint.Address}]:{endpoint.Port}"
+            : $"{endpoint.Address}:{endpoint.Port}";
+
+    private sealed record ValidatedOptions(
+        string ExecutablePath,
+        string ConfigurationPath,
+        IPEndPoint SocksEndpoint,
+        string? Version,
+        string? ExpectedExecutableSha256,
+        TimeSpan ReadinessTimeout,
+        TimeSpan ShutdownTimeout,
+        TimeSpan ProbeInterval,
+        int MaximumLogEntries,
+        int MaximumLogLineLength);
+}

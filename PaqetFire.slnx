@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PaqetFire.Core/PaqetFire.Core.csproj" />
+    <Project Path="src/PaqetFire.Broker/PaqetFire.Broker.csproj" />
+    <Project Path="src/PaqetFire.Desktop/PaqetFire.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj" />
+  </Folder>
+</Solution>

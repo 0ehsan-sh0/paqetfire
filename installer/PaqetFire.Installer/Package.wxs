@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:firewall="http://wixtoolset.org/schemas/v4/wxs/firewall">
+  <Package
+      Name="PaqetFire"
+      Manufacturer="PaqetFire"
+      Version="0.6.4"
+      Language="1033"
+      UpgradeCode="4DA85CF0-9972-421B-99D1-A4631694C72F"
+      Scope="perMachine"
+      InstallerVersion="500"
+      Compressed="yes">
+
+    <SummaryInformation Description="Installs PaqetFire, its privileged broker, Paqet, Xray, and ProxiFyre." />
+    <MajorUpgrade
+        DowngradeErrorMessage="A newer PaqetFire version is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="PaqetFire.ico" SourceFile="$(var.DesktopPublishDir)\Assets\PaqetFire.ico" />
+    <Icon Id="PaqetFire.exe" SourceFile="$(var.DesktopPublishDir)\PaqetFire.Desktop.exe" />
+    <Property Id="ARPPRODUCTICON" Value="PaqetFire.ico" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="PaqetFire">
+        <Directory Id="ApplicationFolder" Name="app" />
+        <Directory Id="BrokerFolder" Name="broker">
+          <Directory Id="PayloadFolder" Name="payload">
+            <Directory Id="PayloadEnginesFolder" Name="engines">
+              <Directory Id="XrayEngineFolder" Name="xray">
+                <Directory Id="XrayArchitectureFolder" Name="x64" />
+              </Directory>
+              <Directory Id="ProxiFyreEngineFolder" Name="proxifyre">
+                <Directory Id="ProxiFyreArchitectureFolder" Name="x64" />
+              </Directory>
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="PaqetFireMenuFolder" Name="PaqetFire" />
+    </StandardDirectory>
+
+    <Feature Id="Complete" Title="PaqetFire" Level="1">
+      <ComponentGroupRef Id="DesktopPayload" />
+      <ComponentGroupRef Id="BrokerPayload" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="DesktopPayload" Directory="ApplicationFolder">
+      <Component Id="DesktopExecutable" Guid="3C62BB9C-5A8F-461F-AF5C-91C8A9E886C3">
+        <File
+            Id="PaqetFireDesktopExe"
+            Source="$(var.DesktopPublishDir)\PaqetFire.Desktop.exe"
+            KeyPath="yes">
+          <Shortcut
+              Id="PaqetFireStartMenuShortcut"
+              Directory="PaqetFireMenuFolder"
+              Name="PaqetFire"
+              Description="Private routing control center"
+              WorkingDirectory="ApplicationFolder"
+              Advertise="yes"
+              Icon="PaqetFire.exe" />
+        </File>
+        <RemoveFolder Id="RemovePaqetFireMenuFolder" Directory="PaqetFireMenuFolder" On="uninstall" />
+      </Component>
+
+      <Files Include="$(var.DesktopPublishDir)\**">
+        <Exclude Files="$(var.DesktopPublishDir)\PaqetFire.Desktop.exe" />
+        <Exclude Files="$(var.DesktopPublishDir)\**\*.pdb" />
+      </Files>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="BrokerPayload" Directory="BrokerFolder">
+      <Component Id="BrokerService" Guid="F6D95EA9-70A1-4226-AE2E-A4945D923646">
+        <File
+            Id="PaqetFireBrokerExe"
+            Source="$(var.BrokerPublishDir)\PaqetFire.Broker.exe"
+            KeyPath="yes" />
+        <ServiceInstall
+            Id="InstallPaqetFireBroker"
+            Name="PaqetFire Broker"
+            DisplayName="PaqetFire Broker"
+            Description="Provides privileged, local-only engine lifecycle operations for PaqetFire."
+            Type="ownProcess"
+            Start="auto"
+            ErrorControl="normal"
+            Account="LocalSystem" />
+        <ServiceControl
+            Id="ControlPaqetFireBroker"
+            Name="PaqetFire Broker"
+            Start="install"
+            Stop="both"
+            Remove="uninstall"
+            Wait="yes" />
+      </Component>
+
+      <Files Include="$(var.BrokerPublishDir)\**">
+        <Exclude Files="$(var.BrokerPublishDir)\PaqetFire.Broker.exe" />
+        <Exclude Files="$(var.BrokerPublishDir)\payload\engines\proxifyre\x64\ProxiFyre.exe" />
+        <Exclude Files="$(var.BrokerPublishDir)\payload\engines\xray\**" />
+        <Exclude Files="$(var.BrokerPublishDir)\**\*.pdb" />
+      </Files>
+
+      <Component Id="XrayLanShareFirewall" Directory="XrayArchitectureFolder" Guid="8DB6F046-7A72-4C4C-B126-76E555AA7608">
+        <File
+            Id="PaqetFireXrayExe"
+            Source="$(var.BrokerPublishDir)\payload\engines\xray\x64\xray.exe"
+            KeyPath="yes">
+          <firewall:FirewallException
+              Id="XrayLanShareTcp"
+              Name="PaqetFire LAN SOCKS5 TCP"
+              Description="Allows authenticated PaqetFire SOCKS5 access from the local subnet."
+              Protocol="tcp"
+              Profile="all"
+              Scope="localSubnet" />
+          <firewall:FirewallException
+              Id="XrayLanShareUdp"
+              Name="PaqetFire LAN SOCKS5 UDP"
+              Description="Allows authenticated PaqetFire SOCKS5 UDP access from the local subnet."
+              Protocol="udp"
+              Profile="all"
+              Scope="localSubnet" />
+        </File>
+        <File Source="$(var.BrokerPublishDir)\payload\engines\xray\x64\geoip.dat" />
+        <File Source="$(var.BrokerPublishDir)\payload\engines\xray\x64\geosite.dat" />
+      </Component>
+
+      <Component Id="ProxiFyreService" Directory="ProxiFyreArchitectureFolder" Guid="8444B807-9440-47F6-9EE5-F343A96B0B10">
+        <File
+            Id="PaqetFireProxiFyreExe"
+            Source="$(var.BrokerPublishDir)\payload\engines\proxifyre\x64\ProxiFyre.exe"
+            KeyPath="yes">
+          <firewall:FirewallException
+              Id="ProxiFyreInboundTcp"
+              Name="PaqetFire ProxiFyre TCP"
+              Description="Allows ProxiFyre local TCP redirect listeners."
+              Protocol="tcp"
+              Profile="all"
+              Scope="any" />
+          <firewall:FirewallException
+              Id="ProxiFyreInboundUdp"
+              Name="PaqetFire ProxiFyre UDP"
+              Description="Allows ProxiFyre local UDP redirect listeners."
+              Protocol="udp"
+              Profile="all"
+              Scope="any" />
+        </File>
+        <ServiceInstall
+            Id="InstallProxiFyreService"
+            Name="ProxiFyreService"
+            DisplayName="PaqetFire ProxiFyre Engine"
+            Description="Routes selected application traffic through PaqetFire's local SOCKS5 endpoint."
+            Type="ownProcess"
+            Start="demand"
+            ErrorControl="normal"
+            Account="LocalSystem">
+          <ServiceDependency Id="NDISRD" />
+        </ServiceInstall>
+        <ServiceControl
+            Id="ControlProxiFyreService"
+            Name="ProxiFyreService"
+            Stop="both"
+            Remove="uninstall"
+            Wait="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

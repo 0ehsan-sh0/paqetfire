@@ -1,0 +1,377 @@
+using PaqetFire.Broker.Configuration;
+using System.Security.Cryptography;
+using PaqetFire.Broker.Deployment;
+using PaqetFire.Broker.Engines;
+using PaqetFire.Broker.Network;
+using PaqetFire.Core.Configuration;
+using PaqetFire.Core.Connections;
+using PaqetFire.Core.Deployment;
+using PaqetFire.Core.Engines;
+using PaqetFire.Core.Ipc;
+using PaqetFire.Core.Routing;
+
+namespace PaqetFire.Broker.Runtime;
+
+public sealed class PaqetFireRuntime(
+    IConnectionController connectionController,
+    PaqetProcessAdapter paqetAdapter,
+    XrayProcessAdapter xrayAdapter,
+    IMachineSettingsStore settingsStore,
+    IAtomicConfigurationStore configurationStore,
+    IPaqetConfigurationWriter paqetWriter,
+    IXrayConfigurationWriter xrayWriter,
+    IProxiFyreConfigurationWriter proxiFyreWriter,
+    NetworkEnvironmentDetector networkDetector,
+    PayloadIntegrityInspector payloadInspector,
+    PrerequisiteInspector prerequisiteInspector,
+    RuntimePaths paths,
+    ILogger<PaqetFireRuntime> logger) : IPaqetFireRuntime
+{
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    public async ValueTask InitializeAsync(CancellationToken cancellationToken)
+    {
+        var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
+        if (settings?.KillSwitchEnabled != true ||
+            !File.Exists(paths.ProxiFyreConfigurationPath))
+        {
+            return;
+        }
+
+        try
+        {
+            await connectionController.GuardAsync(cancellationToken).ConfigureAwait(false);
+            logger.LogInformation("The routing kill switch was restored during broker startup.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogError(exception, "The routing kill switch could not be restored during broker startup.");
+        }
+    }
+
+    public async ValueTask<BrokerSnapshot> GetSnapshotAsync(
+        CancellationToken cancellationToken)
+    {
+        var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
+        return await CreateSnapshotAsync(settings, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<BrokerSnapshot> SaveSettingsAsync(
+        PaqetFireSettings settings,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var existing = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(settings.TransportKey) && existing is not null)
+            {
+                settings = settings with { TransportKey = existing.TransportKey };
+            }
+
+            if (string.IsNullOrEmpty(settings.LanSocksPassword) && existing is not null)
+            {
+                settings = settings with { LanSocksPassword = existing.LanSocksPassword };
+            }
+
+            var errors = PaqetFireSettingsValidator.Validate(settings);
+            if (errors.Count > 0)
+            {
+                throw new ConfigurationValidationException(errors);
+            }
+
+            var inspection = await payloadInspector.InspectAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (inspection.State != PayloadInspectionState.Ready)
+            {
+                throw new InvalidOperationException(inspection.Detail);
+            }
+
+            var current = await connectionController.GetStatusAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var reconnect = current.State == ConnectionState.Connected;
+            if (current.State != ConnectionState.Disconnected)
+            {
+                await connectionController.DisconnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            var network = networkDetector.Detect();
+            var normalized = Normalize(settings);
+            var paqetProfile = new PaqetProfile(
+                normalized.ServerEndpoint,
+                "127.0.0.1:1080",
+                network.InterfaceName,
+                network.InterfaceGuid,
+                network.LocalIpv4Address,
+                network.GatewayMacAddress,
+                normalized.LocalTcpFlags,
+                normalized.RemoteTcpFlags,
+                normalized.KcpMode);
+
+            var policy = new RoutingPolicy(
+                normalized.RoutingMode,
+                $"127.0.0.1:{XrayJsonConfigurationWriter.InboundPort}",
+                normalized.SelectedApplications,
+                normalized.UserExclusions,
+                BypassLan: normalized.BypassLan,
+                RouteTcp: normalized.RouteTcp,
+                RouteUdp: normalized.RouteUdp,
+                RouteIpv4: normalized.RouteIpv4,
+                RouteIpv6: normalized.RouteIpv6);
+            var brokerExecutablePath = Path.Combine(AppContext.BaseDirectory, "PaqetFire.Broker.exe");
+            var lockedExclusions = RoutingPolicyCompiler.CreateLockedExclusions(
+                paths.PaqetExecutablePath,
+                paths.ProxiFyreExecutablePath,
+                [paths.XrayExecutablePath, brokerExecutablePath]);
+            var routePlan = RoutingPolicyCompiler.Compile(
+                policy,
+                paths.PaqetExecutablePath,
+                paths.ProxiFyreExecutablePath,
+                [paths.XrayExecutablePath, brokerExecutablePath]);
+
+            var paqetText = paqetWriter.Write(paqetProfile, normalized.TransportKey);
+            var xrayText = xrayWriter.Write(new XrayRoutingPolicy(
+                normalized.RegionalPreset,
+                normalized.DomainStrategy,
+                normalized.BypassLan,
+                normalized.BlockAds,
+                normalized.BlockQuic,
+                normalized.DirectBitTorrent,
+                normalized.ShareWithLan
+                    ? new LanSocksShare(
+                        network.LocalIpv4Address,
+                        normalized.LanSocksPort,
+                        normalized.LanSocksUsername,
+                        normalized.LanSocksPassword)
+                    : null));
+            var proxiFyreText = proxiFyreWriter.Write(routePlan, lockedExclusions);
+            await configurationStore.WriteAsync(paths.PaqetConfigurationPath, paqetText, cancellationToken)
+                .ConfigureAwait(false);
+            await configurationStore.WriteAsync(paths.ProxiFyreConfigurationPath, proxiFyreText, cancellationToken)
+                .ConfigureAwait(false);
+            await configurationStore.WriteAsync(paths.XrayConfigurationPath, xrayText, cancellationToken)
+                .ConfigureAwait(false);
+            await settingsStore.SaveAsync(normalized, cancellationToken).ConfigureAwait(false);
+
+            if (normalized.KillSwitchEnabled)
+            {
+                await connectionController.GuardAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (reconnect)
+            {
+                await connectionController.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            logger.LogInformation(
+                "Applied PaqetFire profile {ProfileName} on adapter {InterfaceName}.",
+                normalized.ProfileName,
+                network.InterfaceName);
+            return await CreateSnapshotAsync(normalized, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async ValueTask<BrokerSnapshot> ConnectAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var settings = await settingsStore.LoadAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Save a valid Paqet profile before connecting.");
+            var missing = prerequisiteInspector.Inspect().Where(item => !item.IsInstalled).ToArray();
+            if (missing.Length > 0)
+            {
+                throw new MissingPrerequisiteException(missing);
+            }
+
+            var inspection = await payloadInspector.InspectAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (inspection.State != PayloadInspectionState.Ready)
+            {
+                throw new InvalidOperationException(inspection.Detail);
+            }
+
+            if (!File.Exists(paths.PaqetConfigurationPath) ||
+                !File.Exists(paths.XrayConfigurationPath) ||
+                !File.Exists(paths.ProxiFyreConfigurationPath))
+            {
+                throw new InvalidOperationException("The engine configuration is missing. Save the profile again.");
+            }
+
+            if (settings.KillSwitchEnabled)
+            {
+                await connectionController.GuardAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            try
+            {
+                await connectionController.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (settings.KillSwitchEnabled)
+                {
+                    await connectionController.GuardAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+
+                throw;
+            }
+            return await CreateSnapshotAsync(settings, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async ValueTask<BrokerSnapshot> DisconnectAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
+            if (settings?.KillSwitchEnabled == true)
+            {
+                await connectionController.GuardAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await connectionController.DisconnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return await CreateSnapshotAsync(settings, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async ValueTask<BrokerSnapshot> CreateSnapshotAsync(
+        PaqetFireSettings? settings,
+        CancellationToken cancellationToken)
+    {
+        var status = await connectionController.GetStatusAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var prerequisites = prerequisiteInspector.Inspect();
+        var missing = prerequisites.Where(item => !item.IsInstalled).Select(item => item.DisplayName).ToArray();
+        var message = missing.Length > 0
+            ? $"Install the missing prerequisite{(missing.Length == 1 ? string.Empty : "s")}: {string.Join(", ", missing)}."
+            : settings is null
+                ? "Add your server and transport key, then save the profile."
+                : status.State == ConnectionState.Guarded && settings.KillSwitchEnabled
+                    ? "The routing kill switch is active. Routed applications remain blocked until Paqet reconnects or the kill switch is disabled."
+                    : status.Detail;
+
+        var paqetLogs = paqetAdapter.GetRecentLogs()
+            .TakeLast(60)
+            .Select(entry => $"{entry.OccurredAt:HH:mm:ss}  {(entry.IsError ? "ERR" : "INF")}  Paqet · {entry.Message}");
+        var xrayLogs = xrayAdapter.GetRecentLogs()
+            .TakeLast(20)
+            .Select(entry => $"{entry.OccurredAt:HH:mm:ss}  INF  Xray · {entry.Message}");
+        var logs = paqetLogs.Concat(xrayLogs)
+            .TakeLast(80)
+            .ToArray();
+
+        return new BrokerSnapshot(
+            [status.Paqet, status.Xray, status.ProxiFyre],
+            IsRouting: status.State == ConnectionState.Connected,
+            IsKillSwitchEnabled: settings?.KillSwitchEnabled == true &&
+                                 status.ProxiFyre.State == EngineState.Running,
+            status.ObservedAt ?? DateTimeOffset.UtcNow,
+            IsConfigured: settings is not null,
+            Settings: settings is null ? CreateDefaultView() : PaqetFireSettingsView.FromSettings(settings),
+            Prerequisites: prerequisites,
+            RecentLogs: logs,
+            StatusMessage: message);
+    }
+
+    private async ValueTask<PaqetFireSettings?> TryLoadSettingsAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await settingsStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is IOException or InvalidDataException or CryptographicException or FormatException)
+        {
+            logger.LogError(exception, "The saved PaqetFire settings could not be loaded.");
+            return null;
+        }
+    }
+
+    private static PaqetFireSettings Normalize(PaqetFireSettings settings) => settings with
+    {
+        ProfileName = settings.ProfileName.Trim(),
+        ServerEndpoint = settings.ServerEndpoint.Trim(),
+        LanSocksUsername = settings.LanSocksUsername.Trim(),
+        KcpMode = settings.KcpMode.Trim().ToLowerInvariant(),
+        SelectedApplications = NormalizeList(settings.SelectedApplications),
+        UserExclusions = NormalizeList(settings.UserExclusions),
+        LocalTcpFlags = NormalizeFlags(settings.LocalTcpFlags),
+        RemoteTcpFlags = NormalizeFlags(settings.RemoteTcpFlags),
+    };
+
+    private static IReadOnlyList<string> NormalizeList(IEnumerable<string> values) => values
+        .Select(value => value.Trim())
+        .Where(value => value.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Order(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    private static IReadOnlyList<string> NormalizeFlags(IEnumerable<string> values) => values
+        .Select(value => value.Trim().ToUpperInvariant())
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+
+    private static PaqetFireSettingsView CreateDefaultView() => new(
+        "Default",
+        string.Empty,
+        false,
+        RoutingMode.AllApplications,
+        [],
+        [],
+        false,
+        true,
+        true,
+        true,
+        true,
+        RegionalRoutingPreset.IranDirect,
+        XrayDomainStrategy.IPIfNonMatch,
+        true,
+        false,
+        true,
+        false,
+        false,
+        1082,
+        "paqetfire",
+        false,
+        "fast",
+        ["PA"],
+        ["PA"]);
+}
+
+public sealed record RuntimePaths(
+    string PayloadRoot,
+    string PaqetExecutablePath,
+    string PaqetConfigurationPath,
+    string XrayExecutablePath,
+    string XrayConfigurationPath,
+    string XrayGeoIpPath,
+    string XrayGeoSitePath,
+    string ProxiFyreExecutablePath,
+    string ProxiFyreConfigurationPath,
+    string MachineSettingsPath);
+
+public sealed class MissingPrerequisiteException(
+    IReadOnlyList<PrerequisiteStatus> prerequisites) : InvalidOperationException(
+        "One or more required packet drivers are missing.")
+{
+    public IReadOnlyList<PrerequisiteStatus> Prerequisites { get; } = prerequisites;
+}
