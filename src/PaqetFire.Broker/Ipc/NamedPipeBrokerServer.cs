@@ -221,6 +221,14 @@ public sealed class NamedPipeBrokerServer(
                 "The broker command is not supported.");
         }
 
+        if (request.ConnectAfterSave && request.Command != BrokerCommand.SaveSettings)
+        {
+            return BrokerResponse.Failed(
+                request.RequestId,
+                BrokerErrorCode.InvalidRequest,
+                "Connect-after-save is valid only for a settings request.");
+        }
+
         return null;
     }
 
@@ -322,6 +330,11 @@ public sealed class NamedPipeBrokerServer(
             CancellationToken cancellationToken)
         {
             var payload = JsonSerializer.SerializeToUtf8Bytes(message, IpcJson.SerializerOptions);
+            while (payload.Length > IpcProtocol.MaxMessageSizeBytes && TryDropOldestLogs(ref message))
+            {
+                payload = JsonSerializer.SerializeToUtf8Bytes(message, IpcJson.SerializerOptions);
+            }
+
             if (payload.Length > IpcProtocol.MaxMessageSizeBytes)
             {
                 throw new InvalidDataException("The IPC response exceeds the maximum message size.");
@@ -341,6 +354,31 @@ public sealed class NamedPipeBrokerServer(
             {
                 writeLock.Release();
             }
+        }
+
+        private static bool TryDropOldestLogs(ref BrokerServerMessage message)
+        {
+            var snapshot = message.Response?.Snapshot ?? message.Event?.Snapshot;
+            if (snapshot?.RecentLogs is not { Count: > 0 } logs)
+            {
+                return false;
+            }
+
+            var removeCount = Math.Max(1, logs.Count / 4);
+            var trimmedSnapshot = snapshot with { RecentLogs = logs.Skip(removeCount).ToArray() };
+            message = message.MessageType switch
+            {
+                BrokerMessageType.Response => message with
+                {
+                    Response = message.Response! with { Snapshot = trimmedSnapshot },
+                },
+                BrokerMessageType.Event => message with
+                {
+                    Event = message.Event! with { Snapshot = trimmedSnapshot },
+                },
+                _ => message,
+            };
+            return true;
         }
 
         public async ValueTask DisposeAsync()

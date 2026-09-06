@@ -103,6 +103,7 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
 
     public async ValueTask<BrokerSnapshot> SaveSettingsAsync(
         PaqetFireSettings settings,
+        bool connectAfterSave,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
@@ -111,7 +112,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
                 BrokerCommand.SaveSettings,
                 timeout,
                 cancellationToken,
-                settings)
+                settings,
+                connectAfterSave)
             .ConfigureAwait(false);
     }
 
@@ -119,7 +121,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
         BrokerCommand command,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        PaqetFireSettings? settings = null)
+        PaqetFireSettings? settings = null,
+        bool connectAfterSave = false)
     {
         ValidateTimeout(timeout);
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -134,7 +137,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
             Guid.NewGuid(),
             IpcProtocol.Version,
             command,
-            settings);
+            settings,
+            connectAfterSave);
         var completion = new TaskCompletionSource<BrokerResponse>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         if (!pendingRequests.TryAdd(request.RequestId, completion))

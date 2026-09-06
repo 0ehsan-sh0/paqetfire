@@ -41,7 +41,8 @@ public sealed record BrokerRequest(
     Guid RequestId,
     int ProtocolVersion,
     BrokerCommand Command,
-    PaqetFireSettings? Settings = null);
+    PaqetFireSettings? Settings = null,
+    bool ConnectAfterSave = false);
 
 public sealed record BrokerResponse(
     Guid RequestId,
@@ -90,6 +91,7 @@ public sealed record BrokerSnapshot(
     IReadOnlyList<PrerequisiteStatus>? Prerequisites = null,
     IReadOnlyList<string>? RecentLogs = null,
     string? StatusMessage = null,
-    ConnectionState ConnectionState = ConnectionState.Disconnected);
+    ConnectionState ConnectionState = ConnectionState.Disconnected,
+    string? OperationWarning = null);
 
 public sealed record BrokerError(BrokerErrorCode Code, string Message);

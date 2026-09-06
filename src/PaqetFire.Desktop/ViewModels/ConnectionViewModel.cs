@@ -4,15 +4,18 @@ using Microsoft.UI.Dispatching;
 using PaqetFire.Core.Engines;
 using PaqetFire.Core.Ipc;
 using PaqetFire.Core.Configuration;
+using PaqetFire.Core.Routing;
 using PaqetFire.Desktop.Ipc;
 using PaqetFire.Desktop.Presentation;
+using CoreConnectionState = PaqetFire.Core.Connections.ConnectionState;
 
 namespace PaqetFire.Desktop.ViewModels;
 
 public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan StatusRequestTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan LifecycleRequestTimeout = TimeSpan.FromMinutes(2);
 
     private readonly IBrokerClient brokerClient;
     private readonly DispatcherQueue dispatcherQueue;
@@ -29,7 +32,9 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
     private string routingDetailText = "Routing is currently inactive.";
     private string lastCheckedText = "Not checked yet";
     private string brokerStatusText = "Checking";
+    private string effectiveRoutingText = "Set up a profile to preview which traffic will use PaqetFire.";
     private string? errorMessage;
+    private string? lastActivitySummary;
     private bool isBusy;
     private bool disposed;
 
@@ -58,6 +63,8 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
                 OnPropertyChanged(nameof(IsConnected));
                 OnPropertyChanged(nameof(CanConnect));
                 OnPropertyChanged(nameof(CanDisconnect));
+                OnPropertyChanged(nameof(CanPrimaryAction));
+                OnPropertyChanged(nameof(PrimaryActionText));
             }
         }
     }
@@ -71,7 +78,13 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
     public string StateLabel
     {
         get => stateLabel;
-        private set => SetProperty(ref stateLabel, value);
+        private set
+        {
+            if (SetProperty(ref stateLabel, value))
+            {
+                OnPropertyChanged(nameof(PrimaryActionText));
+            }
+        }
     }
 
     public string StatusDescription
@@ -122,6 +135,12 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         private set => SetProperty(ref brokerStatusText, value);
     }
 
+    public string EffectiveRoutingText
+    {
+        get => effectiveRoutingText;
+        private set => SetProperty(ref effectiveRoutingText, value);
+    }
+
     public string? ErrorMessage
     {
         get => errorMessage;
@@ -144,6 +163,9 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
                 OnPropertyChanged(nameof(CanConnect));
                 OnPropertyChanged(nameof(CanDisconnect));
                 OnPropertyChanged(nameof(CanRefresh));
+                OnPropertyChanged(nameof(CanPrimaryAction));
+                OnPropertyChanged(nameof(CanSaveAndConnect));
+                OnPropertyChanged(nameof(PrimaryActionText));
             }
         }
     }
@@ -155,6 +177,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
     public bool CanConnect =>
         !IsBusy && ConnectionState is
             BrokerConnectionState.Disconnected or
+            BrokerConnectionState.Guarded or
             BrokerConnectionState.Degraded or
             BrokerConnectionState.Faulted;
 
@@ -162,6 +185,23 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         !IsBusy && ConnectionState is BrokerConnectionState.Connected or BrokerConnectionState.Degraded;
 
     public bool CanRefresh => !IsBusy;
+
+    public bool CanSaveAndConnect => !IsBusy;
+
+    public bool CanPrimaryAction =>
+        !IsBusy && ConnectionState is not BrokerConnectionState.Connecting and not BrokerConnectionState.Disconnecting;
+
+    public string PrimaryActionText => IsBusy
+        ? ConnectionState == BrokerConnectionState.Disconnecting ? "Disconnecting…" : "Working…"
+        : ConnectionState switch
+        {
+            BrokerConnectionState.Connected or BrokerConnectionState.Degraded => "Disconnect",
+            BrokerConnectionState.Guarded => "Reconnect",
+            BrokerConnectionState.NotReady when StateLabel == "PROFILE REQUIRED" => "Set up connection",
+            BrokerConnectionState.NotReady => "Open diagnostics",
+            BrokerConnectionState.Faulted => "Open diagnostics",
+            _ => "Connect",
+        };
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -186,7 +226,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
             try
             {
                 await brokerClient.OpenAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);
-                var snapshot = await brokerClient.GetSnapshotAsync(RequestTimeout, cancellationToken)
+                var snapshot = await brokerClient.GetSnapshotAsync(StatusRequestTimeout, cancellationToken)
                     .ConfigureAwait(false);
                 await UpdateUiAsync(() => ApplySnapshot(snapshot)).ConfigureAwait(false);
             }
@@ -236,7 +276,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
                 await brokerClient.OpenAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);
                 var snapshot = await brokerClient.SetConnectionStateAsync(
                         connected: true,
-                        RequestTimeout,
+                        LifecycleRequestTimeout,
                         cancellationToken)
                     .ConfigureAwait(false);
 
@@ -283,6 +323,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     public async Task<bool> SaveSettingsAsync(
         PaqetFireSettings settings,
+        bool connectAfterSave = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -298,18 +339,32 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
             {
                 IsBusy = true;
                 ErrorMessage = null;
-                StateLabel = "SAVING PROFILE";
-                StatusText = "Applying configuration…";
+                StateLabel = connectAfterSave ? "CONNECTING" : "SAVING PROFILE";
+                StatusText = connectAfterSave ? "Applying configuration and connecting…" : "Applying configuration…";
                 StatusDescription = "The broker is validating the profile and generating engine configuration.";
-                ActivityOccurred?.Invoke("Configuration save requested.");
+                ActivityOccurred?.Invoke(connectAfterSave
+                    ? "Configuration save and connection requested."
+                    : "Configuration save requested.");
             }).ConfigureAwait(false);
 
             try
             {
                 await brokerClient.OpenAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);
-                var snapshot = await brokerClient.SaveSettingsAsync(settings, RequestTimeout, cancellationToken)
+                var snapshot = await brokerClient.SaveSettingsAsync(
+                        settings,
+                        connectAfterSave,
+                        LifecycleRequestTimeout,
+                        cancellationToken)
                     .ConfigureAwait(false);
-                await UpdateUiAsync(() => ApplySnapshot(snapshot)).ConfigureAwait(false);
+                await UpdateUiAsync(() =>
+                {
+                    ApplySnapshot(snapshot);
+                    if (!string.IsNullOrWhiteSpace(snapshot.OperationWarning))
+                    {
+                        ErrorMessage = snapshot.OperationWarning;
+                        ActivityOccurred?.Invoke("The profile was saved, but the connection did not start.");
+                    }
+                }).ConfigureAwait(false);
                 return true;
             }
             catch (BrokerRequestException exception)
@@ -372,7 +427,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
                 await brokerClient.OpenAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);
                 var snapshot = await brokerClient.SetConnectionStateAsync(
                         connected: false,
-                        RequestTimeout,
+                        LifecycleRequestTimeout,
                         cancellationToken)
                     .ConfigureAwait(false);
                 await UpdateUiAsync(() => ApplySnapshot(snapshot)).ConfigureAwait(false);
@@ -546,7 +601,14 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
             };
         BrokerStatusText = "Running";
         LastCheckedText = $"Updated {snapshot.CapturedAt.ToLocalTime():t}";
-        ActivityOccurred?.Invoke($"Status refreshed: {engineSummary.ToLowerInvariant()}.");
+        EffectiveRoutingText = CreateEffectiveRoutingText(snapshot.Settings);
+        var engineStates = string.Join(", ", snapshot.Engines.Select(engine => $"{engine.Engine} {engine.State}"));
+        var activitySummary = $"{snapshot.ConnectionState}:{engineStates}:{snapshot.StatusMessage}";
+        if (!string.Equals(lastActivitySummary, activitySummary, StringComparison.Ordinal))
+        {
+            lastActivitySummary = activitySummary;
+            ActivityOccurred?.Invoke($"Status changed: {engineSummary.ToLowerInvariant()} · {engineStates}.");
+        }
         SnapshotReceived?.Invoke(snapshot);
 
         var missingPrerequisites = snapshot.Prerequisites?.Where(item => !item.IsInstalled).ToArray() ?? [];
@@ -573,9 +635,9 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
             StatusText = "Add your Paqet server";
             StatusDescription = snapshot.StatusMessage ?? "Open Paqet connection, enter the server and transport key, then save.";
         }
-        else if (snapshot.IsKillSwitchEnabled && !snapshot.IsRouting)
+        else if (snapshot.ConnectionState == CoreConnectionState.Guarded)
         {
-            ConnectionState = BrokerConnectionState.Disconnected;
+            ConnectionState = BrokerConnectionState.Guarded;
             StateLabel = "KILL SWITCH ACTIVE";
             StatusText = "Routed applications are blocked";
             StatusDescription = snapshot.StatusMessage ??
@@ -605,7 +667,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         else if (snapshot.IsRouting && runningCount == snapshot.Engines.Count)
         {
             ConnectionState = BrokerConnectionState.Connected;
-            StateLabel = snapshot.IsKillSwitchEnabled ? "PROTECTED" : "ROUTING ACTIVE";
+            StateLabel = snapshot.IsKillSwitchEnabled ? "ROUTING ACTIVE · KILL SWITCH ON" : "ROUTING ACTIVE";
             StatusText = $"Routing active · {engineSummary}";
             StatusDescription = snapshot.IsKillSwitchEnabled
                 ? "Applications covered by the routing policy are protected by the route and fail-closed policy."
@@ -641,6 +703,30 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         LastCheckedText = $"Failed {DateTimeOffset.Now:t}";
         ErrorMessage = GetFriendlyError(exception);
         ActivityOccurred?.Invoke("Could not contact the broker.");
+    }
+
+    private static string CreateEffectiveRoutingText(PaqetFireSettingsView? settings)
+    {
+        if (settings is null || !settings.HasTransportKey)
+        {
+            return "Set up a profile to preview which traffic will use PaqetFire.";
+        }
+
+        var scope = settings.RoutingMode == RoutingMode.AllApplications
+            ? "All supported apps"
+            : settings.SelectedApplications.Count switch
+            {
+                0 => "No apps selected",
+                1 => "1 selected app",
+                var count => $"{count} selected apps",
+            };
+        var destination = settings.RegionalPreset == RegionalRoutingPreset.IranDirect
+            ? "Iran direct"
+            : "All destinations routed";
+        var lan = settings.BypassLan ? "LAN bypass on" : "LAN routed";
+        var bitTorrent = settings.DirectBitTorrent ? "BitTorrent direct" : "BitTorrent routed";
+        var killSwitch = settings.KillSwitchEnabled ? "Kill switch on" : "Kill switch off";
+        return $"{scope} · {destination} · {lan} · {bitTorrent} · {killSwitch}";
     }
 
     private async Task SafeCloseTransportAsync()

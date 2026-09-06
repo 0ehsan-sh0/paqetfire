@@ -9,6 +9,7 @@ using PaqetFire.Core.Deployment;
 using PaqetFire.Core.Engines;
 using PaqetFire.Core.Ipc;
 using PaqetFire.Core.Routing;
+using System.Text;
 
 namespace PaqetFire.Broker.Runtime;
 
@@ -27,6 +28,7 @@ public sealed class PaqetFireRuntime(
     RuntimePaths paths,
     ILogger<PaqetFireRuntime> logger) : IPaqetFireRuntime
 {
+    private const int RecentLogBudgetBytes = 24 * 1024;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken)
@@ -58,6 +60,7 @@ public sealed class PaqetFireRuntime(
 
     public async ValueTask<BrokerSnapshot> SaveSettingsAsync(
         PaqetFireSettings settings,
+        bool connectAfterSave,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -81,6 +84,14 @@ public sealed class PaqetFireRuntime(
                 throw new ConfigurationValidationException(errors);
             }
 
+            var current = await connectionController.GetStatusAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var reconnect = connectAfterSave || current.State == ConnectionState.Connected;
+            if (reconnect)
+            {
+                EnsurePrerequisitesAvailable();
+            }
+
             var inspection = await payloadInspector.InspectAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (inspection.State != PayloadInspectionState.Ready)
@@ -88,9 +99,6 @@ public sealed class PaqetFireRuntime(
                 throw new InvalidOperationException(inspection.Detail);
             }
 
-            var current = await connectionController.GetStatusAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var reconnect = current.State == ConnectionState.Connected;
             if (current.State != ConnectionState.Disconnected)
             {
                 await connectionController.DisconnectAsync(cancellationToken).ConfigureAwait(false);
@@ -106,16 +114,37 @@ public sealed class PaqetFireRuntime(
                 await connectionController.GuardAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            string? operationWarning = null;
             if (reconnect)
             {
-                await connectionController.ConnectAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await connectionController.ConnectAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    operationWarning = $"The profile was saved, but the connection could not start. {exception.Message}";
+                    logger.LogWarning(exception, "The saved profile could not be connected.");
+                    if (normalized.KillSwitchEnabled)
+                    {
+                        try
+                        {
+                            await connectionController.GuardAsync(CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception guardException)
+                        {
+                            logger.LogError(guardException, "Fail-closed protection could not be restored after the connection failed.");
+                        }
+                    }
+                }
             }
 
             logger.LogInformation(
                 "Applied PaqetFire profile {ProfileName} on adapter {InterfaceName}.",
                 normalized.ProfileName,
                 interfaceName);
-            return await CreateSnapshotAsync(normalized, cancellationToken).ConfigureAwait(false);
+            var snapshot = await CreateSnapshotAsync(normalized, cancellationToken).ConfigureAwait(false);
+            return snapshot with { OperationWarning = operationWarning };
         }
         finally
         {
@@ -130,11 +159,7 @@ public sealed class PaqetFireRuntime(
         {
             var settings = await settingsStore.LoadAsync(cancellationToken).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Save a valid Paqet profile before connecting.");
-            var missing = prerequisiteInspector.Inspect().Where(item => !item.IsInstalled).ToArray();
-            if (missing.Length > 0)
-            {
-                throw new MissingPrerequisiteException(missing);
-            }
+            EnsurePrerequisitesAvailable();
 
             var inspection = await payloadInspector.InspectAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -282,13 +307,18 @@ public sealed class PaqetFireRuntime(
 
         var paqetLogs = paqetAdapter.GetRecentLogs()
             .TakeLast(60)
-            .Select(entry => $"{entry.OccurredAt:HH:mm:ss}  {(entry.IsError ? "ERR" : "INF")}  Paqet · {entry.Message}");
+            .Select(entry => (
+                entry.OccurredAt,
+                Text: $"{entry.OccurredAt:HH:mm:ss}  {(entry.IsError ? "ERR" : "INF")}  Paqet · {entry.Message}"));
         var xrayLogs = xrayAdapter.GetRecentLogs()
             .TakeLast(20)
-            .Select(entry => $"{entry.OccurredAt:HH:mm:ss}  INF  Xray · {entry.Message}");
-        var logs = paqetLogs.Concat(xrayLogs)
-            .TakeLast(80)
-            .ToArray();
+            .Select(entry => (
+                entry.OccurredAt,
+                Text: $"{entry.OccurredAt:HH:mm:ss}  INF  Xray · {entry.Message}"));
+        var logs = TakeRecentLogsWithinBudget(paqetLogs
+            .Concat(xrayLogs)
+            .OrderBy(entry => entry.OccurredAt)
+            .Select(entry => entry.Text));
 
         return new BrokerSnapshot(
             [status.Paqet, status.Xray, status.ProxiFyre],
@@ -342,6 +372,35 @@ public sealed class PaqetFireRuntime(
         .Select(value => value.Trim().ToUpperInvariant())
         .Distinct(StringComparer.Ordinal)
         .ToArray();
+
+    private void EnsurePrerequisitesAvailable()
+    {
+        var missing = prerequisiteInspector.Inspect().Where(item => !item.IsInstalled).ToArray();
+        if (missing.Length > 0)
+        {
+            throw new MissingPrerequisiteException(missing);
+        }
+    }
+
+    private static IReadOnlyList<string> TakeRecentLogsWithinBudget(IEnumerable<string> source)
+    {
+        var newestFirst = new List<string>();
+        var usedBytes = 0;
+        foreach (var line in source.TakeLast(80).Reverse())
+        {
+            var bytes = Encoding.UTF8.GetByteCount(line);
+            if (usedBytes + bytes > RecentLogBudgetBytes)
+            {
+                continue;
+            }
+
+            newestFirst.Add(line);
+            usedBytes += bytes;
+        }
+
+        newestFirst.Reverse();
+        return newestFirst;
+    }
 
     private static PaqetFireSettingsView CreateDefaultView() => new(
         "Default",

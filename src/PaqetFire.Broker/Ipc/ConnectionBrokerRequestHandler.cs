@@ -37,7 +37,7 @@ public sealed class ConnectionBrokerRequestHandler(
 
                     return BrokerResponse.Succeeded(
                         request.RequestId,
-                        await runtime.SaveSettingsAsync(request.Settings, cancellationToken)
+                        await runtime.SaveSettingsAsync(request.Settings, request.ConnectAfterSave, cancellationToken)
                             .ConfigureAwait(false));
 
                 case BrokerCommand.GetSnapshot:

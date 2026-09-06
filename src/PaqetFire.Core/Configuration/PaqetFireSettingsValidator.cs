@@ -4,6 +4,8 @@ namespace PaqetFire.Core.Configuration;
 
 public static class PaqetFireSettingsValidator
 {
+    private const int MaxRoutingEntries = 128;
+    private const int MaxRoutingCharacters = 8 * 1024;
     private static readonly HashSet<string> KcpModes = new(
         ["normal", "fast", "fast2", "fast3"],
         StringComparer.OrdinalIgnoreCase);
@@ -112,6 +114,12 @@ public static class PaqetFireSettingsValidator
                 value.Any(char.IsControl)))
         {
             errors.Add($"Every {label} must contain 1 to 1024 printable characters.");
+        }
+
+        if (entries is { } values &&
+            (values.Count > MaxRoutingEntries || values.Sum(value => value?.Length ?? 0) > MaxRoutingCharacters))
+        {
+            errors.Add($"The {label} list is too large. Use at most {MaxRoutingEntries} entries and {MaxRoutingCharacters} characters.");
         }
     }
 

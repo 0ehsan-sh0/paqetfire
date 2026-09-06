@@ -20,7 +20,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <!--
+      Reference only the Windows App SDK component that the desktop app uses.
+      The umbrella package also deploys AI/ML, Search, Widgets, and DWrite
+      components in self-contained builds, adding tens of megabytes of unused
+      binaries to the installer.
+    -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.6" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
 
@@ -31,7 +37,6 @@
   <ItemGroup>
     <Content Include="Assets\PaqetFire.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\PaqetFire-64.png" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets\PaqetFire-1024.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--

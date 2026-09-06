@@ -9,6 +9,9 @@
       </ResourceDictionary.MergedDictionaries>
       <SolidColorBrush x:Key="PaqetFireAccentBrush" Color="#FF6B42" />
       <SolidColorBrush x:Key="PaqetFireSuccessBrush" Color="#2FCB8C" />
+      <SolidColorBrush x:Key="PaqetFireWarningBrush" Color="#F5A524" />
+      <SolidColorBrush x:Key="PaqetFireErrorBrush" Color="#E5484D" />
+      <SolidColorBrush x:Key="PaqetFireNeutralBrush" Color="#8A8F98" />
     </ResourceDictionary>
   </Application.Resources>
 </Application>

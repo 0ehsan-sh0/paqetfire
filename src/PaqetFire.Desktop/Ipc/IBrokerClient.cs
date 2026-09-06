@@ -17,6 +17,7 @@ public interface IBrokerClient
 
     ValueTask<BrokerSnapshot> SaveSettingsAsync(
         PaqetFireSettings settings,
+        bool connectAfterSave,
         TimeSpan timeout,
         CancellationToken cancellationToken);
 

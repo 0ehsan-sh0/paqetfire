@@ -11,12 +11,13 @@
 
     <Grid x:Name="AppTitleBar" Padding="16,0,16,0">
       <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-        <Image Width="30" Height="30" Source="Assets/PaqetFire-64.png" Stretch="Uniform" />
+        <Image Width="30" Height="30" Source="Assets/PaqetFire-64.png" Stretch="Uniform"
+               AutomationProperties.AccessibilityView="Raw" />
         <TextBlock Text="PaqetFire" FontSize="14" FontWeight="SemiBold" />
         <Border x:Name="VersionBadge" Height="22" MinWidth="44" Padding="8,0"
                 CornerRadius="7" VerticalAlignment="Center"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-          <TextBlock Text="v0.6.11" FontSize="10" FontWeight="SemiBold" Opacity="0.78"
+          <TextBlock Text="v0.6.12" FontSize="10" FontWeight="SemiBold" Opacity="0.78"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
       </StackPanel>
@@ -73,26 +74,38 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Spacing="13">
                   <StackPanel Orientation="Horizontal" Spacing="9">
-                    <Ellipse Width="9" Height="9" Fill="{StaticResource PaqetFireAccentBrush}" VerticalAlignment="Center" />
+                    <Ellipse x:Name="ConnectionStateIndicator" Width="9" Height="9"
+                             Fill="{StaticResource PaqetFireNeutralBrush}" VerticalAlignment="Center" />
                     <TextBlock Text="{x:Bind ViewModel.StateLabel, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
                   </StackPanel>
                   <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap" />
                   <TextBlock Text="{x:Bind ViewModel.StatusDescription, Mode=OneWay}" FontSize="14" Opacity="0.7" TextWrapping="Wrap" />
+                  <Border Padding="12,9" CornerRadius="10" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                    <StackPanel Spacing="3">
+                      <TextBlock Text="Effective routing" FontSize="11" FontWeight="SemiBold" Opacity="0.65" />
+                      <TextBlock Text="{x:Bind ViewModel.EffectiveRoutingText, Mode=OneWay}"
+                                 FontSize="13" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
                   <InfoBar IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}" Severity="Warning"
                            IsClosable="False" Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" />
                   <StackPanel Orientation="Horizontal" Spacing="10">
-                    <Button Content="Connect" IsEnabled="{x:Bind ViewModel.CanConnect, Mode=OneWay}"
-                            Click="ConnectButton_Click" Style="{StaticResource AccentButtonStyle}" />
-                    <Button Content="Disconnect" IsEnabled="{x:Bind ViewModel.CanDisconnect, Mode=OneWay}"
-                            Click="DisconnectButton_Click" />
+                    <Button Content="{x:Bind ViewModel.PrimaryActionText, Mode=OneWay}"
+                            IsEnabled="{x:Bind ViewModel.CanPrimaryAction, Mode=OneWay}"
+                            Click="PrimaryConnectionActionButton_Click"
+                            Style="{StaticResource AccentButtonStyle}" MinWidth="142"
+                            AccessKey="C" KeyboardAcceleratorPlacementMode="Hidden" />
                     <Button Content="Refresh" IsEnabled="{x:Bind ViewModel.CanRefresh, Mode=OneWay}"
-                            Click="RefreshButton_Click" />
+                            Click="RefreshButton_Click" AccessKey="R" />
                     <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
                   </StackPanel>
                 </StackPanel>
-                <Border Grid.Column="1" Width="112" Height="112" CornerRadius="56" Background="#18FF6B42"
+                <Border x:Name="ConnectionStateIconSurface" Grid.Column="1" Width="112" Height="112" CornerRadius="56"
+                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                         VerticalAlignment="Center">
-                  <FontIcon Glyph="&#xE774;" FontSize="42" Foreground="{StaticResource PaqetFireAccentBrush}" />
+                  <FontIcon x:Name="ConnectionStateIcon" Glyph="&#xE774;" FontSize="42"
+                            Foreground="{StaticResource PaqetFireNeutralBrush}"
+                            AutomationProperties.AccessibilityView="Raw" />
                 </Border>
               </Grid>
             </Border>
@@ -175,9 +188,9 @@
               </StackPanel>
             </Border>
 
-            <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-              <StackPanel Spacing="16">
-                <TextBlock Text="Local network" FontSize="18" FontWeight="SemiBold" />
+            <Expander Header="Detected network details" IsExpanded="False">
+              <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+               <StackPanel Spacing="16">
                 <TextBlock Text="PaqetFire detects these values from the active default route when the profile is saved. You can preview the detected adapter here."
                            FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
                 <Grid ColumnSpacing="14">
@@ -192,12 +205,13 @@
                   <TextBox x:Name="RouterMacBox" Grid.Column="1" Header="Router MAC address" PlaceholderText="Resolved when the broker saves" IsReadOnly="True" />
                 </Grid>
                 <Button Content="Detect adapter details" Click="DetectAdapterButton_Click" HorizontalAlignment="Left" />
-              </StackPanel>
-            </Border>
+               </StackPanel>
+              </Border>
+            </Expander>
 
-            <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-              <StackPanel Spacing="16">
-                <TextBlock Text="Transport" FontSize="18" FontWeight="SemiBold" />
+            <Expander Header="Advanced transport settings" IsExpanded="False">
+              <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+               <StackPanel Spacing="16">
                 <Grid ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <ComboBox x:Name="KcpModeBox" Header="KCP mode" SelectedIndex="1" HorizontalAlignment="Stretch">
@@ -207,13 +221,15 @@
                   <TextBox x:Name="RemoteFlagsBox" Grid.Column="2" Header="Remote TCP flags" PlaceholderText="SA" />
                 </Grid>
                 <TextBlock Text="Advanced defaults work for most Paqet servers. Change them only to match your server configuration."
-                           FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
-              </StackPanel>
-            </Border>
+                            FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
+               </StackPanel>
+              </Border>
+            </Expander>
 
             <StackPanel Orientation="Horizontal" Spacing="10">
               <Button Content="Save profile" Style="{StaticResource AccentButtonStyle}" Click="SaveProfileButton_Click" />
-              <Button Content="Test and connect" IsEnabled="{x:Bind ViewModel.CanConnect, Mode=OneWay}" Click="SaveAndConnectButton_Click" />
+              <Button Content="Save and connect" IsEnabled="{x:Bind ViewModel.CanSaveAndConnect, Mode=OneWay}"
+                      Click="SaveAndConnectButton_Click" AccessKey="C" />
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
@@ -234,7 +250,7 @@
               <StackPanel Spacing="16">
                 <TextBlock Text="Routing mode" FontSize="18" FontWeight="SemiBold" />
                 <RadioButtons x:Name="RoutingModeButtons" SelectionChanged="RoutingModeButtons_SelectionChanged">
-                  <RadioButton Content="Everything on this PC (recommended)" />
+                  <RadioButton Content="All supported applications (recommended)" />
                   <RadioButton Content="Only selected applications" />
                 </RadioButtons>
                 <TextBlock x:Name="RoutingModeHelpText"
@@ -353,7 +369,8 @@
 
             <StackPanel Orientation="Horizontal" Spacing="10">
               <Button Content="Save routing policy" Style="{StaticResource AccentButtonStyle}" Click="SaveRoutingButton_Click" />
-              <Button Content="Save and connect" IsEnabled="{x:Bind ViewModel.CanConnect, Mode=OneWay}" Click="SaveRoutingAndConnectButton_Click" />
+              <Button Content="Save and connect" IsEnabled="{x:Bind ViewModel.CanSaveAndConnect, Mode=OneWay}"
+                      Click="SaveRoutingAndConnectButton_Click" AccessKey="C" />
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
@@ -513,7 +530,7 @@
             <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
               <StackPanel Spacing="12">
                 <TextBlock Text="About" FontSize="18" FontWeight="SemiBold" />
-                <TextBlock Text="PaqetFire 0.6.11" FontWeight="SemiBold" />
+                <TextBlock Text="PaqetFire 0.6.12" FontWeight="SemiBold" />
                 <TextBlock Text="A single Windows control surface for Paqet, Xray, and ProxiFyre. Core engines and their licenses are included with the installer."
                            Opacity="0.68" TextWrapping="Wrap" />
                 <TextBlock Text="Routing always excludes Paqet, Xray, ProxiFyre, the broker, and packet-capture services to avoid a proxy loop."

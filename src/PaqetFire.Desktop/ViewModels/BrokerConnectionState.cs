@@ -6,6 +6,7 @@ public enum BrokerConnectionState
     Connecting,
     Connected,
     Disconnecting,
+    Guarded,
     NotReady,
     Degraded,
     Faulted,

@@ -11,6 +11,7 @@ public interface IPaqetFireRuntime
 
     ValueTask<BrokerSnapshot> SaveSettingsAsync(
         PaqetFireSettings settings,
+        bool connectAfterSave,
         CancellationToken cancellationToken);
 
     ValueTask<BrokerSnapshot> ConnectAsync(CancellationToken cancellationToken);

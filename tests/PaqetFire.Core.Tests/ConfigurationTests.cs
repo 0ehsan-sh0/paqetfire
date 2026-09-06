@@ -53,6 +53,23 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public void RoutingLists_RejectOversizedProfiles()
+    {
+        var settings = new PaqetFireSettings
+        {
+            ServerEndpoint = "example.com:8443",
+            TransportKey = "secret",
+            SelectedApplications = Enumerable.Range(0, 129).Select(index => $"app-{index}.exe").ToArray(),
+            UserExclusions = Enumerable.Range(0, 9).Select(index => $"{index}-{new string('x', 1022)}").ToArray(),
+        };
+
+        var errors = PaqetFireSettingsValidator.Validate(settings);
+
+        Assert.Contains(errors, error => error.Contains("selected application list is too large", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(errors, error => error.Contains("exclusion list is too large", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ProtocolSelection_IsPreservedAndRequiresOneChoicePerGroup()
     {
         var settings = new PaqetFireSettings

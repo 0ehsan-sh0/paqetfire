@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private bool hasSavedLanSocksPassword;
     private DesktopPreferences preferences = new();
     private readonly HashSet<string> brokerLogLines = new(StringComparer.Ordinal);
+    private readonly Queue<string> brokerLogLineOrder = new();
     private readonly Dictionary<string, PrerequisiteStatus> prerequisites = new(StringComparer.OrdinalIgnoreCase);
     private readonly PrerequisiteInstallerService prerequisiteInstaller = new();
     private System.Windows.Forms.NotifyIcon? trayIcon;
@@ -51,6 +52,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         InitializeComponent();
+        UpdateConnectionVisuals();
 
         Title = "PaqetFire";
         ExtendsContentIntoTitleBar = true;
@@ -101,6 +103,30 @@ public sealed partial class MainWindow : Window
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e) =>
         await ViewModel.RefreshAsync();
+
+    private async void PrimaryConnectionActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.ConnectionState == BrokerConnectionState.NotReady)
+        {
+            NavigateTo(ViewModel.StateLabel == "PROFILE REQUIRED" ? "connection" : "diagnostics");
+            return;
+        }
+
+        if (ViewModel.ConnectionState == BrokerConnectionState.Faulted)
+        {
+            NavigateTo("diagnostics");
+            return;
+        }
+
+        if (ViewModel.CanDisconnect)
+        {
+            await ViewModel.DisconnectAsync();
+        }
+        else if (ViewModel.CanConnect)
+        {
+            await ViewModel.ConnectAsync();
+        }
+    }
 
     private async void PrerequisiteActionButton_Click(object sender, RoutedEventArgs e)
     {
@@ -190,6 +216,11 @@ public sealed partial class MainWindow : Window
     private void NavigateLink_Click(object sender, RoutedEventArgs e)
     {
         var destination = (sender as FrameworkElement)?.Tag?.ToString() ?? "overview";
+        NavigateTo(destination);
+    }
+
+    private void NavigateTo(string destination)
+    {
         var item = Navigation.MenuItems
             .OfType<NavigationViewItem>()
             .FirstOrDefault(candidate => string.Equals(
@@ -248,7 +279,11 @@ public sealed partial class MainWindow : Window
         if (await TrySavePreferencesAsync() && await ViewModel.SaveSettingsAsync(settings))
         {
             MarkSecretsSaved(settings);
-            ShowInfo(ConnectionInfoBar, InfoBarSeverity.Success, "Profile applied", "The broker validated the profile and generated all three engine configurations.");
+            ShowInfo(
+                ConnectionInfoBar,
+                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
+                ViewModel.HasError ? "Profile saved — connection needs attention" : "Profile applied",
+                ViewModel.ErrorMessage ?? "The broker validated the profile and generated all three engine configurations.");
             AddActivity($"Connection profile '{preferences.ProfileName}' saved.");
         }
         else if (ViewModel.HasError)
@@ -272,10 +307,14 @@ public sealed partial class MainWindow : Window
         }
 
         ShowInfo(ConnectionInfoBar, InfoBarSeverity.Informational, "Applying profile", "The broker is validating the profile and routing policy.");
-        if (await ViewModel.SaveSettingsAsync(settings))
+        if (await ViewModel.SaveSettingsAsync(settings, connectAfterSave: true))
         {
             MarkSecretsSaved(settings);
-            await ViewModel.ConnectAsync();
+            ShowInfo(
+                ConnectionInfoBar,
+                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
+                ViewModel.HasError ? "Profile saved — connection failed" : "Connected",
+                ViewModel.ErrorMessage ?? "The profile was saved and the PaqetFire route is active.");
         }
         else
         {
@@ -295,7 +334,11 @@ public sealed partial class MainWindow : Window
         if (await TrySavePreferencesAsync() && await ViewModel.SaveSettingsAsync(settings))
         {
             MarkSecretsSaved(settings);
-            ShowInfo(RoutingInfoBar, InfoBarSeverity.Success, "Routing policy applied", "The broker regenerated the ProxiFyre route safely.");
+            ShowInfo(
+                RoutingInfoBar,
+                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
+                ViewModel.HasError ? "Policy saved — connection needs attention" : "Routing policy applied",
+                ViewModel.ErrorMessage ?? "The broker regenerated the ProxiFyre route safely.");
             AddActivity(preferences.RouteAllApplications
                 ? "Routing policy saved: all applications."
                 : "Routing policy saved: selected applications.");
@@ -317,10 +360,14 @@ public sealed partial class MainWindow : Window
         }
 
         ShowInfo(RoutingInfoBar, InfoBarSeverity.Informational, "Applying policy", "The broker is validating the complete configuration.");
-        if (await ViewModel.SaveSettingsAsync(settings))
+        if (await ViewModel.SaveSettingsAsync(settings, connectAfterSave: true))
         {
             MarkSecretsSaved(settings);
-            await ViewModel.ConnectAsync();
+            ShowInfo(
+                RoutingInfoBar,
+                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
+                ViewModel.HasError ? "Policy saved — connection failed" : "Connected",
+                ViewModel.ErrorMessage ?? "The routing policy was saved and the PaqetFire route is active.");
         }
         else
         {
@@ -737,6 +784,12 @@ public sealed partial class MainWindow : Window
         {
             if (brokerLogLines.Add(line))
             {
+                brokerLogLineOrder.Enqueue(line);
+                while (brokerLogLineOrder.Count > 400)
+                {
+                    brokerLogLines.Remove(brokerLogLineOrder.Dequeue());
+                }
+
                 AddActivity(line, line.Contains(" ERR ", StringComparison.Ordinal) ? "ERROR" : "ENGINE");
             }
         }
@@ -897,7 +950,34 @@ public sealed partial class MainWindow : Window
             nameof(ConnectionViewModel.IsBusy))
         {
             UpdateTrayState();
+            UpdateConnectionVisuals();
         }
+    }
+
+    private void UpdateConnectionVisuals()
+    {
+        if (ConnectionStateIndicator is null || ConnectionStateIcon is null || ConnectionStateIconSurface is null)
+        {
+            return;
+        }
+
+        var resourceKey = ViewModel.ConnectionState switch
+        {
+            BrokerConnectionState.Connected => "PaqetFireSuccessBrush",
+            BrokerConnectionState.Connecting => "PaqetFireAccentBrush",
+            BrokerConnectionState.Guarded or BrokerConnectionState.NotReady or BrokerConnectionState.Degraded => "PaqetFireWarningBrush",
+            BrokerConnectionState.Faulted => "PaqetFireErrorBrush",
+            _ => "PaqetFireNeutralBrush",
+        };
+        var brush = Application.Current.Resources[resourceKey] as SolidColorBrush
+            ?? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 138, 143, 152));
+        ConnectionStateIndicator.Fill = brush;
+        ConnectionStateIcon.Foreground = brush;
+        ConnectionStateIconSurface.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(
+            24,
+            brush.Color.R,
+            brush.Color.G,
+            brush.Color.B));
     }
 
     private void UpdateTrayState()
@@ -912,6 +992,7 @@ public sealed partial class MainWindow : Window
             BrokerConnectionState.Connected => "Connected",
             BrokerConnectionState.Connecting => "Connecting…",
             BrokerConnectionState.Disconnecting => "Disconnecting…",
+            BrokerConnectionState.Guarded => "Routed apps blocked",
             BrokerConnectionState.NotReady => "Setup required",
             BrokerConnectionState.Degraded => "Connection degraded",
             BrokerConnectionState.Faulted => "Connection fault",
