@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2B-0078D4">
   <img alt=".NET" src="https://img.shields.io/badge/.NET-10.0-512BD4">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.6.8-FF6B42">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.6.9-FF6B42">
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-F59E0B">
 </p>
 
@@ -195,7 +195,7 @@ packages are intentionally excluded from Git.
 
 ## Project status
 
-Version 0.6.8 is a usable development preview. The current source includes the
+Version 0.6.9 is a usable development preview. The current source includes the
 native desktop UI, broker service, engine adapters, regional routing, protocol
 selection, kill switch, LAN SOCKS5 sharing, tray behavior, diagnostics, and the
 WiX installer.

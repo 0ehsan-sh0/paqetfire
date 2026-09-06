@@ -45,7 +45,12 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteStringValue("tls");
             writer.WriteStringValue("quic");
             writer.WriteEndArray();
-            writer.WriteBoolean("routeOnly", true);
+            // ProxiFyre can only forward the resolved IP address. Let Xray replace
+            // that address with a hostname recovered from HTTP/TLS/QUIC so the
+            // Paqet SOCKS hop performs remote DNS resolution. Keeping routeOnly
+            // enabled breaks destinations whose locally resolved IP is synthetic
+            // or unusable from the remote Paqet endpoint (for example YouTube).
+            writer.WriteBoolean("routeOnly", false);
             writer.WriteEndObject();
             writer.WriteEndObject();
 
@@ -75,7 +80,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteStringValue("tls");
                 writer.WriteStringValue("quic");
                 writer.WriteEndArray();
-                writer.WriteBoolean("routeOnly", true);
+                writer.WriteBoolean("routeOnly", false);
                 writer.WriteEndObject();
                 writer.WriteEndObject();
             }

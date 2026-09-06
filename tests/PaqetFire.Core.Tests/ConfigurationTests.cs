@@ -223,6 +223,25 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public void XraySniffing_OverridesIpDestinationsWithTheRecoveredDomain()
+    {
+        var json = new XrayJsonConfigurationWriter().Write(new XrayRoutingPolicy(
+            RegionalRoutingPreset.None,
+            XrayDomainStrategy.IPIfNonMatch,
+            BypassLan: false,
+            BlockAds: false,
+            BlockQuic: false,
+            DirectBitTorrent: false,
+            new LanSocksShare("192.168.50.12", 2082, "family", "correct-horse")));
+
+        using var document = JsonDocument.Parse(json);
+        foreach (var inbound in document.RootElement.GetProperty("inbounds").EnumerateArray())
+        {
+            Assert.False(inbound.GetProperty("sniffing").GetProperty("routeOnly").GetBoolean());
+        }
+    }
+
+    [Fact]
     public void LanSharing_RequiresAValidPortUsernameAndPassword()
     {
         var settings = new PaqetFireSettings
