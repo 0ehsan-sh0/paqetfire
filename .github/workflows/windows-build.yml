@@ -1,0 +1,79 @@
+name: Windows build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and package x64 MSI
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Stage verified engine payload
+        shell: pwsh
+        run: ./scripts/Stage-ReleasePayload.ps1
+
+      - name: Restore solution
+        run: dotnet restore PaqetFire.slnx -r win-x64
+
+      - name: Run tests
+        run: dotnet test PaqetFire.slnx -c Release -r win-x64 --no-restore
+
+      - name: Publish desktop app
+        run: >-
+          dotnet publish src/PaqetFire.Desktop/PaqetFire.Desktop.csproj
+          -c Release -r win-x64 -p:Platform=x64 --self-contained true
+          --no-restore -o artifacts/publish/win-x64/desktop
+          -p:DebugType=None -p:DebugSymbols=false
+
+      - name: Publish broker service
+        run: >-
+          dotnet publish src/PaqetFire.Broker/PaqetFire.Broker.csproj
+          -c Release -r win-x64 --self-contained true
+          --no-restore -o artifacts/publish/win-x64/broker
+          -p:DebugType=None -p:DebugSymbols=false
+
+      - name: Restore WiX installer
+        run: dotnet restore installer/PaqetFire.Installer/PaqetFire.Installer.wixproj
+
+      - name: Build WiX installer
+        run: dotnet build installer/PaqetFire.Installer/PaqetFire.Installer.wixproj -c Release --no-restore
+
+      - name: Create installer checksum
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem artifacts/installer/PaqetFire-*-x64.msi)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one MSI; found $($installers.Count)."
+          }
+          $hash = (Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installers[0].Name)" | Set-Content -LiteralPath "$($installers[0].FullName).sha256" -Encoding ascii
+
+      - name: Upload downloadable installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: PaqetFire-windows-x64-${{ github.sha }}
+          path: |
+            artifacts/installer/PaqetFire-*-x64.msi
+            artifacts/installer/PaqetFire-*-x64.msi.sha256
+          if-no-files-found: error
+          retention-days: 30

@@ -14,5 +14,17 @@ packages. A release build must:
 4. preserve all upstream license and notice files;
 5. fail closed when a version, architecture, signature, or digest differs.
 
+`release-assets.json` locks the official upstream archive URLs and archive
+SHA-256 values. From the repository root, stage the complete verified x64
+payload with:
+
+```powershell
+.\scripts\Stage-ReleasePayload.ps1
+```
+
+The command refuses to write into a non-empty destination. This avoids silently
+mixing payload versions; remove an old ignored `payload/engines/` directory
+before deliberately restaging it.
+
 `manifest.template.json` documents the runtime schema. It contains no approved
 versions or hashes and is not a release lock file.

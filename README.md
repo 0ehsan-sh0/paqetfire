@@ -14,6 +14,7 @@
   <img alt=".NET" src="https://img.shields.io/badge/.NET-10.0-512BD4">
   <img alt="Version" src="https://img.shields.io/badge/version-0.6.9-FF6B42">
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-F59E0B">
+  <a href="https://github.com/4H1R/paqetfire/actions/workflows/windows-build.yml"><img alt="Windows build" src="https://github.com/4H1R/paqetfire/actions/workflows/windows-build.yml/badge.svg?branch=main"></a>
 </p>
 
 > [!IMPORTANT]
@@ -158,9 +159,12 @@ dotnet build PaqetFire.slnx -c Release
 ```
 
 The UI and broker compile without downloaded engine binaries, but the broker
-will report the payload as unavailable. For a functional installer, stage the
-pinned upstream artifacts under `payload/engines/`, verify their hashes against
-`payload/payload-manifest.json`, and then publish:
+will report the payload as unavailable. For a functional installer, use the
+release lock to download and verify the pinned upstream artifacts, then publish:
+
+```powershell
+.\scripts\Stage-ReleasePayload.ps1
+```
 
 ```powershell
 dotnet publish src\PaqetFire.Desktop\PaqetFire.Desktop.csproj `
@@ -176,6 +180,19 @@ dotnet build installer\PaqetFire.Installer\PaqetFire.Installer.wixproj -c Releas
 
 See [payload staging](payload/README.md) and the
 [installer documentation](installer/README.md) for the release contract.
+
+## Continuous integration builds
+
+Every push to `main` runs the Windows build workflow. It downloads the pinned
+Paqet, Xray, and ProxiFyre archives from their official GitHub releases, verifies
+the archive and installed-file SHA-256 hashes, runs the test suite, and packages
+the complete x64 MSI with WiX 7.
+
+To download a build, open the repository's **Actions** page, select the latest
+successful **Windows build** run, and download the
+`PaqetFire-windows-x64-<commit>` artifact. The artifact contains the MSI and its
+SHA-256 checksum and is retained for 30 days. CI builds are currently unsigned
+development builds; Windows may show a publisher warning.
 
 ## Repository layout
 
