@@ -108,7 +108,7 @@ public sealed class PrerequisiteInspector
         }
 
         var value = FileVersionInfo.GetVersionInfo(path).FileVersion;
-        return Version.TryParse(value, out var version) ? version : null;
+        return PrerequisiteCompatibility.ParseWindowsFileVersion(value);
     }
 
     private static int ReadDotNetFrameworkRelease(RegistryView view)

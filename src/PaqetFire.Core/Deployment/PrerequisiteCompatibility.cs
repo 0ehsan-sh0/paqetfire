@@ -23,4 +23,21 @@ public static class PrerequisiteCompatibility
         version is not null &&
         version >= MinimumWindowsPacketFilterVersion &&
         version.Major < 4;
+
+    public static Version? ParseWindowsFileVersion(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var candidate = value.Trim();
+        var metadataIndex = candidate.IndexOfAny([' ', '(']);
+        if (metadataIndex >= 0)
+        {
+            candidate = candidate[..metadataIndex];
+        }
+
+        return Version.TryParse(candidate, out var version) ? version : null;
+    }
 }
