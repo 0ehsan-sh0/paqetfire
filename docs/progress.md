@@ -1,5 +1,21 @@
 # Development progress
 
+## Completed 0.6.8 patch
+
+- Removed the unsupported `bittorrent` Xray sniffing override while retaining
+  the valid direct-BitTorrent routing rule.
+- Added a regression test covering both local and LAN-sharing Xray inbounds.
+- Prevented the broker health monitor from treating normal sequential engine
+  startup or shutdown as an unhealthy chain.
+- Preserved the original engine failure detail in broker responses and Xray
+  diagnostics instead of reducing the failure to a generic stopped state.
+- Regenerate engine configurations from the protected saved profile on every
+  connection so upgrades and network-adapter changes cannot leave stale files.
+- Replaced the unreliable standalone ProxiFyre Windows service with a
+  broker-supervised child process and remove the obsolete service on upgrade.
+- Harden the ProxiFyre engine directory before launch so ProxiFyre 2.6.0's
+  service-path safety check cannot reject inherited `CREATOR OWNER` access.
+
 ## Completed 0.6.4 patch
 
 - Moved LAN SOCKS5 sharing from Paqet connection settings to Routing.
@@ -83,7 +99,7 @@
 - TCP, UDP, IPv4, IPv6, LAN-bypass, KCP mode, and TCP-flag controls.
 - Overview, connection, routing, diagnostics, autostart, and connect-on-launch UI.
 - WiX installer for the self-contained desktop app, broker, engine payloads,
-  ProxiFyre service registration, and scoped firewall rules.
+  broker-supervised ProxiFyre process, and scoped firewall rules.
 - Regression tests for profile validation, catch-all routing, loop exclusions,
   and deterministic Paqet/ProxiFyre configuration output.
 

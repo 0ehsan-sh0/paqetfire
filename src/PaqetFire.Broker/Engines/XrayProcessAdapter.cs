@@ -115,6 +115,7 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
         }
         catch (Exception error)
         {
+            AppendLog(error.Message);
             SetState(EngineState.Faulted, error.Message);
             throw;
         }
@@ -289,15 +290,20 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
     {
         while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
         {
-            lock (stateLock)
+            AppendLog(line);
+        }
+    }
+
+    private void AppendLog(string message)
+    {
+        lock (stateLock)
+        {
+            logs.Enqueue(new XrayProcessLogEntry(
+                DateTimeOffset.Now,
+                message.Length > 2048 ? message[..2048] : message));
+            while (logs.Count > 80)
             {
-                logs.Enqueue(new XrayProcessLogEntry(
-                    DateTimeOffset.Now,
-                    line.Length > 2048 ? line[..2048] : line));
-                while (logs.Count > 80)
-                {
-                    logs.Dequeue();
-                }
+                logs.Dequeue();
             }
         }
     }

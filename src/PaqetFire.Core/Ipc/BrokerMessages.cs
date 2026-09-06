@@ -1,5 +1,6 @@
 using PaqetFire.Core.Engines;
 using PaqetFire.Core.Configuration;
+using PaqetFire.Core.Connections;
 using PaqetFire.Core.Deployment;
 
 namespace PaqetFire.Core.Ipc;
@@ -88,6 +89,7 @@ public sealed record BrokerSnapshot(
     PaqetFireSettingsView? Settings = null,
     IReadOnlyList<PrerequisiteStatus>? Prerequisites = null,
     IReadOnlyList<string>? RecentLogs = null,
-    string? StatusMessage = null);
+    string? StatusMessage = null,
+    ConnectionState ConnectionState = ConnectionState.Disconnected);
 
 public sealed record BrokerError(BrokerErrorCode Code, string Message);

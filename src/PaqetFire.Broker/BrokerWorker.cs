@@ -1,6 +1,7 @@
 using PaqetFire.Broker.Deployment;
 using PaqetFire.Broker.Ipc;
 using PaqetFire.Broker.Runtime;
+using PaqetFire.Core.Connections;
 using PaqetFire.Core.Engines;
 using PaqetFire.Core.Ipc;
 
@@ -49,20 +50,10 @@ public sealed class BrokerWorker(
                 }
 
                 var snapshot = await runtime.GetSnapshotAsync(stoppingToken).ConfigureAwait(false);
-                var paqet = snapshot.Engines.FirstOrDefault(engine => engine.Engine == EngineKind.Paqet);
-                var xray = snapshot.Engines.FirstOrDefault(engine => engine.Engine == EngineKind.Xray);
-                var proxiFyre = snapshot.Engines.FirstOrDefault(engine => engine.Engine == EngineKind.ProxiFyre);
-                var allHealthy = paqet?.State == EngineState.Running &&
-                                 xray?.State == EngineState.Running &&
-                                 proxiFyre?.State == EngineState.Running;
-                var guarded = snapshot.IsKillSwitchEnabled &&
-                              paqet?.State == EngineState.Stopped &&
-                              xray?.State == EngineState.Stopped &&
-                              proxiFyre?.State == EngineState.Running;
-                var anyEngineActive = snapshot.Engines.Any(engine =>
-                    engine.State is EngineState.Running or EngineState.Starting or EngineState.Faulted);
-
-                if (!allHealthy && !guarded && anyEngineActive)
+                if (ConnectionRecoveryPolicy.RequiresSafeRecovery(
+                        snapshot.ConnectionState,
+                        snapshot.IsKillSwitchEnabled,
+                        snapshot.Engines))
                 {
                     logger.LogWarning(
                         "The engine chain is unhealthy; restoring the configured safe disconnected state.");

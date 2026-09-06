@@ -16,13 +16,15 @@ PaqetFire must treat ProxiFyre as a separately managed engine process, not load
 - program-scoped inbound TCP and UDP firewall rules for `ProxiFyre.exe`, because
   the redirect listeners use dynamically allocated ports.
 
-The official installer uses that exact service name/account/dependency and does
-not start the engine until a valid configuration exists. See the
+PaqetFire runs the bundled executable as a broker-supervised child process under
+LocalSystem and removes any obsolete standalone ProxiFyre service during upgrade.
+Before launch, the broker protects the engine directory from standard-user writes
+to satisfy ProxiFyre's service-path security check. See the upstream
 [official installer contract](https://github.com/wiresock/proxifyre/blob/main/docs/installer.md#service)
 and [firewall contract](https://github.com/wiresock/proxifyre/blob/main/docs/installer.md#firewall-rules).
 
-The broker should write configuration atomically before starting or restarting
-the service. ProxiFyre reads the configuration only at startup, so saving a
+The broker writes configuration atomically before starting or restarting
+the process. ProxiFyre reads the configuration only at startup, so saving a
 change without a restart does not apply it. The upstream configuration lives
 beside the resolved executable and the upstream GUI preserves a `.bak` file;
 see the [official configuration reference](https://github.com/wiresock/proxifyre/blob/main/docs/configuration.md).

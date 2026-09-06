@@ -70,13 +70,18 @@ builder.Services.AddSingleton(_ => new XrayProcessAdapter(new XrayProcessOptions
     InboundEndpoint = new IPEndPoint(IPAddress.Loopback, XrayJsonConfigurationWriter.InboundPort),
     ReadinessTimeout = TimeSpan.FromSeconds(15),
 }));
-builder.Services.AddSingleton(services => new ProxiFyreServiceAdapter(
-    services.GetRequiredService<ILogger<ProxiFyreServiceAdapter>>(),
-    engineVersion: "2.6.0"));
+builder.Services.AddSingleton(_ => new ProxiFyreProcessAdapter(new ProxiFyreProcessOptions
+{
+    ExecutablePath = paths.ProxiFyreExecutablePath,
+    ConfigurationPath = paths.ProxiFyreConfigurationPath,
+    Version = "2.6.0",
+    ExpectedExecutableSha256 = "eaa48f0efc0dfbbab6f4ea6fc2ff6c7b45164dca544921962025b698bd59869f",
+    ReadinessTimeout = TimeSpan.FromSeconds(8),
+}));
 builder.Services.AddSingleton<IConnectionController>(services => new ConnectionController(
     services.GetRequiredService<PaqetProcessAdapter>(),
     services.GetRequiredService<XrayProcessAdapter>(),
-    services.GetRequiredService<ProxiFyreServiceAdapter>()));
+    services.GetRequiredService<ProxiFyreProcessAdapter>()));
 builder.Services.AddSingleton<IPaqetFireRuntime, PaqetFireRuntime>();
 builder.Services.AddSingleton<IBrokerRequestHandler, ConnectionBrokerRequestHandler>();
 builder.Services.AddSingleton<NamedPipeBrokerServer>();

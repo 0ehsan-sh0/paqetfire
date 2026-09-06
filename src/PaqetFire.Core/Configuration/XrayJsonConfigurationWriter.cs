@@ -44,7 +44,6 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteStringValue("http");
             writer.WriteStringValue("tls");
             writer.WriteStringValue("quic");
-            writer.WriteStringValue("bittorrent");
             writer.WriteEndArray();
             writer.WriteBoolean("routeOnly", true);
             writer.WriteEndObject();
@@ -75,7 +74,6 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteStringValue("http");
                 writer.WriteStringValue("tls");
                 writer.WriteStringValue("quic");
-                writer.WriteStringValue("bittorrent");
                 writer.WriteEndArray();
                 writer.WriteBoolean("routeOnly", true);
                 writer.WriteEndObject();

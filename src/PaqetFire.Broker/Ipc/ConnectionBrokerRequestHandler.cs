@@ -70,10 +70,14 @@ public sealed class ConnectionBrokerRequestHandler(
         }
         catch (ConnectionTransitionException exception)
         {
+            var detail = exception.InnerException?.Message;
+            var message = string.IsNullOrWhiteSpace(detail)
+                ? $"The connection could not complete at the {exception.Engine} engine."
+                : $"The connection could not complete at the {exception.Engine} engine. {detail}";
             return BrokerResponse.Failed(
                 request.RequestId,
                 BrokerErrorCode.EngineFailure,
-                $"The connection could not complete at the {exception.Engine} engine.");
+                message);
         }
         catch (InvalidOperationException exception)
         {

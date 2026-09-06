@@ -96,61 +96,8 @@ public sealed class PaqetFireRuntime(
                 await connectionController.DisconnectAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            var network = networkDetector.Detect();
             var normalized = Normalize(settings);
-            var paqetProfile = new PaqetProfile(
-                normalized.ServerEndpoint,
-                "127.0.0.1:1080",
-                network.InterfaceName,
-                network.InterfaceGuid,
-                network.LocalIpv4Address,
-                network.GatewayMacAddress,
-                normalized.LocalTcpFlags,
-                normalized.RemoteTcpFlags,
-                normalized.KcpMode);
-
-            var policy = new RoutingPolicy(
-                normalized.RoutingMode,
-                $"127.0.0.1:{XrayJsonConfigurationWriter.InboundPort}",
-                normalized.SelectedApplications,
-                normalized.UserExclusions,
-                BypassLan: normalized.BypassLan,
-                RouteTcp: normalized.RouteTcp,
-                RouteUdp: normalized.RouteUdp,
-                RouteIpv4: normalized.RouteIpv4,
-                RouteIpv6: normalized.RouteIpv6);
-            var brokerExecutablePath = Path.Combine(AppContext.BaseDirectory, "PaqetFire.Broker.exe");
-            var lockedExclusions = RoutingPolicyCompiler.CreateLockedExclusions(
-                paths.PaqetExecutablePath,
-                paths.ProxiFyreExecutablePath,
-                [paths.XrayExecutablePath, brokerExecutablePath]);
-            var routePlan = RoutingPolicyCompiler.Compile(
-                policy,
-                paths.PaqetExecutablePath,
-                paths.ProxiFyreExecutablePath,
-                [paths.XrayExecutablePath, brokerExecutablePath]);
-
-            var paqetText = paqetWriter.Write(paqetProfile, normalized.TransportKey);
-            var xrayText = xrayWriter.Write(new XrayRoutingPolicy(
-                normalized.RegionalPreset,
-                normalized.DomainStrategy,
-                normalized.BypassLan,
-                normalized.BlockAds,
-                normalized.BlockQuic,
-                normalized.DirectBitTorrent,
-                normalized.ShareWithLan
-                    ? new LanSocksShare(
-                        network.LocalIpv4Address,
-                        normalized.LanSocksPort,
-                        normalized.LanSocksUsername,
-                        normalized.LanSocksPassword)
-                    : null));
-            var proxiFyreText = proxiFyreWriter.Write(routePlan, lockedExclusions);
-            await configurationStore.WriteAsync(paths.PaqetConfigurationPath, paqetText, cancellationToken)
-                .ConfigureAwait(false);
-            await configurationStore.WriteAsync(paths.ProxiFyreConfigurationPath, proxiFyreText, cancellationToken)
-                .ConfigureAwait(false);
-            await configurationStore.WriteAsync(paths.XrayConfigurationPath, xrayText, cancellationToken)
+            var interfaceName = await WriteEngineConfigurationsAsync(normalized, cancellationToken)
                 .ConfigureAwait(false);
             await settingsStore.SaveAsync(normalized, cancellationToken).ConfigureAwait(false);
 
@@ -167,7 +114,7 @@ public sealed class PaqetFireRuntime(
             logger.LogInformation(
                 "Applied PaqetFire profile {ProfileName} on adapter {InterfaceName}.",
                 normalized.ProfileName,
-                network.InterfaceName);
+                interfaceName);
             return await CreateSnapshotAsync(normalized, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -196,12 +143,14 @@ public sealed class PaqetFireRuntime(
                 throw new InvalidOperationException(inspection.Detail);
             }
 
-            if (!File.Exists(paths.PaqetConfigurationPath) ||
-                !File.Exists(paths.XrayConfigurationPath) ||
-                !File.Exists(paths.ProxiFyreConfigurationPath))
+            settings = Normalize(settings);
+            var errors = PaqetFireSettingsValidator.Validate(settings);
+            if (errors.Count > 0)
             {
-                throw new InvalidOperationException("The engine configuration is missing. Save the profile again.");
+                throw new ConfigurationValidationException(errors);
             }
+
+            await WriteEngineConfigurationsAsync(settings, cancellationToken).ConfigureAwait(false);
 
             if (settings.KillSwitchEnabled)
             {
@@ -252,6 +201,69 @@ public sealed class PaqetFireRuntime(
         }
     }
 
+    private async ValueTask<string> WriteEngineConfigurationsAsync(
+        PaqetFireSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var network = networkDetector.Detect();
+        var paqetProfile = new PaqetProfile(
+            settings.ServerEndpoint,
+            "127.0.0.1:1080",
+            network.InterfaceName,
+            network.InterfaceGuid,
+            network.LocalIpv4Address,
+            network.GatewayMacAddress,
+            settings.LocalTcpFlags,
+            settings.RemoteTcpFlags,
+            settings.KcpMode);
+
+        var policy = new RoutingPolicy(
+            settings.RoutingMode,
+            $"127.0.0.1:{XrayJsonConfigurationWriter.InboundPort}",
+            settings.SelectedApplications,
+            settings.UserExclusions,
+            BypassLan: settings.BypassLan,
+            RouteTcp: settings.RouteTcp,
+            RouteUdp: settings.RouteUdp,
+            RouteIpv4: settings.RouteIpv4,
+            RouteIpv6: settings.RouteIpv6);
+        var brokerExecutablePath = Path.Combine(AppContext.BaseDirectory, "PaqetFire.Broker.exe");
+        var lockedExclusions = RoutingPolicyCompiler.CreateLockedExclusions(
+            paths.PaqetExecutablePath,
+            paths.ProxiFyreExecutablePath,
+            [paths.XrayExecutablePath, brokerExecutablePath]);
+        var routePlan = RoutingPolicyCompiler.Compile(
+            policy,
+            paths.PaqetExecutablePath,
+            paths.ProxiFyreExecutablePath,
+            [paths.XrayExecutablePath, brokerExecutablePath]);
+
+        var paqetText = paqetWriter.Write(paqetProfile, settings.TransportKey);
+        var xrayText = xrayWriter.Write(new XrayRoutingPolicy(
+            settings.RegionalPreset,
+            settings.DomainStrategy,
+            settings.BypassLan,
+            settings.BlockAds,
+            settings.BlockQuic,
+            settings.DirectBitTorrent,
+            settings.ShareWithLan
+                ? new LanSocksShare(
+                    network.LocalIpv4Address,
+                    settings.LanSocksPort,
+                    settings.LanSocksUsername,
+                    settings.LanSocksPassword)
+                : null));
+        var proxiFyreText = proxiFyreWriter.Write(routePlan, lockedExclusions);
+
+        await configurationStore.WriteAsync(paths.PaqetConfigurationPath, paqetText, cancellationToken)
+            .ConfigureAwait(false);
+        await configurationStore.WriteAsync(paths.ProxiFyreConfigurationPath, proxiFyreText, cancellationToken)
+            .ConfigureAwait(false);
+        await configurationStore.WriteAsync(paths.XrayConfigurationPath, xrayText, cancellationToken)
+            .ConfigureAwait(false);
+        return network.InterfaceName;
+    }
+
     private async ValueTask<BrokerSnapshot> CreateSnapshotAsync(
         PaqetFireSettings? settings,
         CancellationToken cancellationToken)
@@ -288,7 +300,8 @@ public sealed class PaqetFireRuntime(
             Settings: settings is null ? CreateDefaultView() : PaqetFireSettingsView.FromSettings(settings),
             Prerequisites: prerequisites,
             RecentLogs: logs,
-            StatusMessage: message);
+            StatusMessage: message,
+            ConnectionState: status.State);
     }
 
     private async ValueTask<PaqetFireSettings?> TryLoadSettingsAsync(

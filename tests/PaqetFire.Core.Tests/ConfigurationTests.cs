@@ -195,6 +195,34 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public void XraySniffing_UsesOnlyProtocolsAcceptedByTheBundledEngine()
+    {
+        var json = new XrayJsonConfigurationWriter().Write(new XrayRoutingPolicy(
+            RegionalRoutingPreset.None,
+            XrayDomainStrategy.IPIfNonMatch,
+            BypassLan: false,
+            BlockAds: false,
+            BlockQuic: false,
+            DirectBitTorrent: true,
+            new LanSocksShare("192.168.50.12", 2082, "family", "correct-horse")));
+
+        using var document = JsonDocument.Parse(json);
+        foreach (var inbound in document.RootElement.GetProperty("inbounds").EnumerateArray())
+        {
+            var overrides = inbound.GetProperty("sniffing").GetProperty("destOverride")
+                .EnumerateArray()
+                .Select(item => item.GetString()!)
+                .ToArray();
+
+            Assert.Equal(["http", "tls", "quic"], overrides);
+            Assert.DoesNotContain("bittorrent", overrides);
+        }
+
+        Assert.Contains("\"protocol\": [", json, StringComparison.Ordinal);
+        Assert.Contains("\"bittorrent\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LanSharing_RequiresAValidPortUsernameAndPassword()
     {
         var settings = new PaqetFireSettings

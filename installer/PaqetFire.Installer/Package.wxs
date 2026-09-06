@@ -4,7 +4,7 @@
   <Package
       Name="PaqetFire"
       Manufacturer="PaqetFire"
-      Version="0.6.4"
+      Version="0.6.8"
       Language="1033"
       UpgradeCode="4DA85CF0-9972-421B-99D1-A4631694C72F"
       Scope="perMachine"
@@ -150,22 +150,11 @@
               Profile="all"
               Scope="any" />
         </File>
-        <ServiceInstall
-            Id="InstallProxiFyreService"
-            Name="ProxiFyreService"
-            DisplayName="PaqetFire ProxiFyre Engine"
-            Description="Routes selected application traffic through PaqetFire's local SOCKS5 endpoint."
-            Type="ownProcess"
-            Start="demand"
-            ErrorControl="normal"
-            Account="LocalSystem">
-          <ServiceDependency Id="NDISRD" />
-        </ServiceInstall>
         <ServiceControl
             Id="ControlProxiFyreService"
             Name="ProxiFyreService"
             Stop="both"
-            Remove="uninstall"
+            Remove="both"
             Wait="yes" />
       </Component>
     </ComponentGroup>

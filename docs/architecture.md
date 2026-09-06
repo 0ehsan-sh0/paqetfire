@@ -54,7 +54,7 @@ The production setup executable will bootstrap, in order:
 2. licensed packet-driver prerequisites;
 3. required Microsoft Visual C++ runtime;
 4. the PaqetFire MSI containing the self-contained UI, broker, and engines;
-5. broker and ProxiFyre service registration, initially stopped;
+5. broker service registration and obsolete ProxiFyre-service cleanup;
 6. firewall rules scoped to the exact installed engine paths.
 
 Setup must be transactional and preserve user profiles during upgrades. Engine
