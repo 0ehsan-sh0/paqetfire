@@ -1,7 +1,14 @@
 using System.Linq;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using PaqetFire.Broker.Configuration;
+using PaqetFire.Broker.Deployment;
+using PaqetFire.Broker.Engines;
 using PaqetFire.Broker.Network;
+using PaqetFire.Broker.Runtime;
 using PaqetFire.Core.Configuration;
+using PaqetFire.Core.Connections;
 using Xunit;
 
 namespace PaqetFire.Core.Tests;
@@ -84,5 +91,155 @@ public sealed class HotspotSharingTests
         };
         Assert.Contains(PaqetFireSettingsValidator.Validate(settings),
             e => e.Contains("must differ", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PaqetFireRuntime_CanBeActivatedByServiceContainer_WithHotspotDetector()
+    {
+        var services = new ServiceCollection();
+        var tempDir = AppContext.BaseDirectory;
+        var paths = new RuntimePaths(
+            tempDir,
+            Path.Combine(tempDir, "p.exe"),
+            Path.Combine(tempDir, "p.yaml"),
+            Path.Combine(tempDir, "x.exe"),
+            Path.Combine(tempDir, "x.json"),
+            Path.Combine(tempDir, "g.dat"),
+            Path.Combine(tempDir, "s.dat"),
+            Path.Combine(tempDir, "pf.exe"),
+            Path.Combine(tempDir, "a.json"),
+            Path.Combine(tempDir, "s.json"));
+
+        services.AddSingleton(paths);
+        services.AddSingleton<PayloadIntegrityInspector>();
+        services.AddSingleton<PrerequisiteInspector>();
+        services.AddSingleton<NetworkEnvironmentDetector>();
+        services.AddSingleton<HotspotNetworkDetector>();
+        services.AddSingleton<IPaqetConfigurationWriter, PaqetYamlConfigurationWriter>();
+        services.AddSingleton<IXrayConfigurationWriter, XrayJsonConfigurationWriter>();
+        services.AddSingleton<IProxiFyreConfigurationWriter, ProxiFyreJsonConfigurationWriter>();
+        services.AddSingleton<IMachineSettingsStore>(_ => new MachineSettingsStore(paths.MachineSettingsPath));
+        services.AddSingleton<IAtomicConfigurationStore>(_ => new AtomicConfigurationStore(paths.PayloadRoot, [paths.PaqetConfigurationPath]));
+        services.AddSingleton(_ => new PaqetProcessAdapter(new PaqetProcessOptions
+        {
+            ExecutablePath = paths.PaqetExecutablePath,
+            ConfigurationPath = paths.PaqetConfigurationPath,
+            TrustedExecutableRoot = paths.PayloadRoot,
+            TrustedConfigurationRoot = paths.PayloadRoot,
+            SocksEndpoint = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 1080),
+            Version = "v1.0.0",
+            ExpectedExecutableSha256 = "7d73f5130757b538c26c3ed76439a150978c3e06289c724de37d916789aaf5dc",
+            ReadinessTimeout = TimeSpan.FromSeconds(1),
+        }));
+        services.AddSingleton(_ => new XrayProcessAdapter(new XrayProcessOptions
+        {
+            ExecutablePath = paths.XrayExecutablePath,
+            ConfigurationPath = paths.XrayConfigurationPath,
+            GeoIpPath = paths.XrayGeoIpPath,
+            GeoSitePath = paths.XrayGeoSitePath,
+            Version = "1.0.0",
+            ExpectedExecutableSha256 = "15c2d007954ac53ba69b80ec91242786b3c0b71d52649165b4ca1d5cc96ef8f1",
+            InboundEndpoint = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 10808),
+            ReadinessTimeout = TimeSpan.FromSeconds(1),
+        }));
+        services.AddSingleton(_ => new ProxiFyreProcessAdapter(new ProxiFyreProcessOptions
+        {
+            ExecutablePath = paths.ProxiFyreExecutablePath,
+            ConfigurationPath = paths.ProxiFyreConfigurationPath,
+            Version = "1.0.0",
+            ExpectedExecutableSha256 = "eaa48f0efc0dfbbab6f4ea6fc2ff6c7b45164dca544921962025b698bd59869f",
+            ReadinessTimeout = TimeSpan.FromSeconds(1),
+        }));
+        services.AddSingleton<IConnectionController>(s => new ConnectionController(
+            s.GetRequiredService<PaqetProcessAdapter>(),
+            s.GetRequiredService<XrayProcessAdapter>(),
+            s.GetRequiredService<ProxiFyreProcessAdapter>()));
+        services.AddSingleton<IPaqetFireRuntime, PaqetFireRuntime>();
+        services.AddLogging();
+
+        await using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateOnBuild = true,
+            ValidateScopes = true,
+        });
+
+        var runtime = provider.GetRequiredService<IPaqetFireRuntime>();
+        Assert.NotNull(runtime);
+    }
+
+    [Fact]
+    public void PaqetFireRuntime_ActivationFails_WhenHotspotDetectorIsMissing()
+    {
+        var services = new ServiceCollection();
+        var tempDir = AppContext.BaseDirectory;
+        var paths = new RuntimePaths(
+            tempDir,
+            Path.Combine(tempDir, "p.exe"),
+            Path.Combine(tempDir, "p.yaml"),
+            Path.Combine(tempDir, "x.exe"),
+            Path.Combine(tempDir, "x.json"),
+            Path.Combine(tempDir, "g.dat"),
+            Path.Combine(tempDir, "s.dat"),
+            Path.Combine(tempDir, "pf.exe"),
+            Path.Combine(tempDir, "a.json"),
+            Path.Combine(tempDir, "s.json"));
+
+        services.AddSingleton(paths);
+        services.AddSingleton<PayloadIntegrityInspector>();
+        services.AddSingleton<PrerequisiteInspector>();
+        services.AddSingleton<NetworkEnvironmentDetector>();
+        // Intentionally omit HotspotNetworkDetector to verify fail-fast behavior
+        services.AddSingleton<IPaqetConfigurationWriter, PaqetYamlConfigurationWriter>();
+        services.AddSingleton<IXrayConfigurationWriter, XrayJsonConfigurationWriter>();
+        services.AddSingleton<IProxiFyreConfigurationWriter, ProxiFyreJsonConfigurationWriter>();
+        services.AddSingleton<IMachineSettingsStore>(_ => new MachineSettingsStore(paths.MachineSettingsPath));
+        services.AddSingleton<IAtomicConfigurationStore>(_ => new AtomicConfigurationStore(paths.PayloadRoot, [paths.PaqetConfigurationPath]));
+        services.AddSingleton(_ => new PaqetProcessAdapter(new PaqetProcessOptions
+        {
+            ExecutablePath = paths.PaqetExecutablePath,
+            ConfigurationPath = paths.PaqetConfigurationPath,
+            TrustedExecutableRoot = paths.PayloadRoot,
+            TrustedConfigurationRoot = paths.PayloadRoot,
+            SocksEndpoint = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 1080),
+            Version = "v1.0.0",
+            ExpectedExecutableSha256 = "7d73f5130757b538c26c3ed76439a150978c3e06289c724de37d916789aaf5dc",
+            ReadinessTimeout = TimeSpan.FromSeconds(1),
+        }));
+        services.AddSingleton(_ => new XrayProcessAdapter(new XrayProcessOptions
+        {
+            ExecutablePath = paths.XrayExecutablePath,
+            ConfigurationPath = paths.XrayConfigurationPath,
+            GeoIpPath = paths.XrayGeoIpPath,
+            GeoSitePath = paths.XrayGeoSitePath,
+            Version = "1.0.0",
+            ExpectedExecutableSha256 = "15c2d007954ac53ba69b80ec91242786b3c0b71d52649165b4ca1d5cc96ef8f1",
+            InboundEndpoint = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 10808),
+            ReadinessTimeout = TimeSpan.FromSeconds(1),
+        }));
+        services.AddSingleton(_ => new ProxiFyreProcessAdapter(new ProxiFyreProcessOptions
+        {
+            ExecutablePath = paths.ProxiFyreExecutablePath,
+            ConfigurationPath = paths.ProxiFyreConfigurationPath,
+            Version = "1.0.0",
+            ExpectedExecutableSha256 = "eaa48f0efc0dfbbab6f4ea6fc2ff6c7b45164dca544921962025b698bd59869f",
+            ReadinessTimeout = TimeSpan.FromSeconds(1),
+        }));
+        services.AddSingleton<IConnectionController>(s => new ConnectionController(
+            s.GetRequiredService<PaqetProcessAdapter>(),
+            s.GetRequiredService<XrayProcessAdapter>(),
+            s.GetRequiredService<ProxiFyreProcessAdapter>()));
+        services.AddSingleton<IPaqetFireRuntime, PaqetFireRuntime>();
+        services.AddLogging();
+
+        var ex = Assert.Throws<AggregateException>(() =>
+        {
+            using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true,
+            });
+        });
+
+        Assert.Contains("HotspotNetworkDetector", ex.Message);
     }
 }
