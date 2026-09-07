@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Media;
 using PaqetFire.Core.Configuration;
 using PaqetFire.Core.Deployment;
 using PaqetFire.Core.Ipc;
+using PaqetFire.Core.Network;
 using PaqetFire.Core.Routing;
 using PaqetFire.Desktop.Ipc;
 using PaqetFire.Desktop.Services;
@@ -71,6 +72,9 @@ public sealed partial class MainWindow : Window
             // The default theme background remains usable when Mica is unavailable.
         }
 
+        NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
+        V2rayNgGuideView.BackRequested += OnGuideBackRequested;
+        HappGuideView.BackRequested += OnGuideBackRequested;
         AppWindow.Closing += OnAppWindowClosing;
         Closed += OnClosed;
     }
@@ -240,6 +244,44 @@ public sealed partial class MainWindow : Window
         RoutingPage.Visibility = destination == "routing" ? Visibility.Visible : Visibility.Collapsed;
         DiagnosticsPage.Visibility = destination == "diagnostics" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = destination == "settings" ? Visibility.Visible : Visibility.Collapsed;
+        if (V2rayNgGuideView is not null)
+        {
+            V2rayNgGuideView.Visibility = destination == "guide-v2rayng" ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (HappGuideView is not null)
+        {
+            HappGuideView.Visibility = destination == "guide-happ" ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private void OnGuideBackRequested(object? sender, EventArgs e) => ShowPage("routing");
+
+    private void OpenV2rayNgGuideButton_Click(object sender, RoutedEventArgs e)
+    {
+        SyncGuideEndpoints();
+        ShowPage("guide-v2rayng");
+    }
+
+    private void OpenHappGuideButton_Click(object sender, RoutedEventArgs e)
+    {
+        SyncGuideEndpoints();
+        ShowPage("guide-happ");
+    }
+
+    private void SyncGuideEndpoints()
+    {
+        var address = HotspotIpBox?.Text.Trim() ?? string.Empty;
+        var port = HotspotPortBox is not null && !double.IsNaN(HotspotPortBox.Value) ? (int)HotspotPortBox.Value : 10808;
+        var username = ShareUsernameBox is not null && !string.IsNullOrWhiteSpace(ShareUsernameBox.Text)
+            ? ShareUsernameBox.Text.Trim()
+            : "paqetfire";
+        var password = SharePasswordBox is not null && !string.IsNullOrEmpty(SharePasswordBox.Password)
+            ? SharePasswordBox.Password
+            : (hasSavedLanSocksPassword ? "saved-password" : "password");
+        var uri = HotspotUriBox?.Text.Trim() ?? string.Empty;
+
+        V2rayNgGuideView?.UpdateEndpoint(address, port, username, password, uri);
+        HappGuideView?.UpdateEndpoint(address, port, username, password, uri);
     }
 
     private void RoutingModeButtons_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -249,6 +291,18 @@ public sealed partial class MainWindow : Window
         RoutingModeHelpText.Text = selectedOnly
             ? "Only the listed executables are proxied. Other applications connect directly."
             : "All application traffic enters the PaqetFire route. Paqet, Xray, ProxiFyre, and the broker are excluded to prevent a loop.";
+    }
+
+    private void UpdateSharedCredentialsVisibility()
+    {
+        if (SharedCredentialsCard is null || ShareWithLanSwitch is null || ShareViaHotspotSwitch is null)
+        {
+            return;
+        }
+
+        SharedCredentialsCard.Visibility = (ShareWithLanSwitch.IsOn || ShareViaHotspotSwitch.IsOn)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void ShareWithLanSwitch_Toggled(object sender, RoutedEventArgs e)
@@ -261,6 +315,7 @@ public sealed partial class MainWindow : Window
         LanShareOptions.Visibility = ShareWithLanSwitch.IsOn
             ? Visibility.Visible
             : Visibility.Collapsed;
+        UpdateSharedCredentialsVisibility();
         UpdateLanShareEndpointText();
     }
 
@@ -274,14 +329,43 @@ public sealed partial class MainWindow : Window
         HotspotOptions.Visibility = ShareViaHotspotSwitch.IsOn
             ? Visibility.Visible
             : Visibility.Collapsed;
-        UpdateHotspotEndpointText();
+        UpdateSharedCredentialsVisibility();
+
+        if (ShareViaHotspotSwitch.IsOn)
+        {
+            DetectHotspot(notifyOnSuccess: false, notifyOnFailure: false);
+        }
+        else
+        {
+            UpdateHotspotEndpointText();
+            UpdateHotspotUri();
+        }
     }
 
-    private void LanSharePortBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
-        UpdateLanShareEndpointText();
+    private void ShareUsernameBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        UpdateHotspotUri();
+    }
 
-    private void HotspotPortBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
+    private void SharePasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        UpdateHotspotUri();
+    }
+
+    private void LanSharePortBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        UpdateLanShareEndpointText();
+        UpdateHotspotUri();
+    }
+
+    private void HotspotPortBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
         UpdateHotspotEndpointText();
+        UpdateHotspotUri();
+    }
+
+    private void DetectHotspotButton_Click(object sender, RoutedEventArgs e) =>
+        DetectHotspot(notifyOnSuccess: true, notifyOnFailure: true);
 
     private async void SaveProfileButton_Click(object sender, RoutedEventArgs e)
     {
@@ -451,6 +535,10 @@ public sealed partial class MainWindow : Window
                 : "Adapter and router details were detected.";
             ShowInfo(ConnectionInfoBar, InfoBarSeverity.Success, "Network detected", message);
             AddActivity($"Detected active adapter '{adapter.Adapter.Name}'.");
+            if (ShareViaHotspotSwitch?.IsOn == true)
+            {
+                DetectHotspot(notifyOnSuccess: false, notifyOnFailure: false);
+            }
         }
         catch (Exception exception) when (exception is NetworkInformationException or SocketException or InvalidOperationException)
         {
@@ -477,7 +565,7 @@ public sealed partial class MainWindow : Window
     private void CopyHotspotUriButton_Click(object sender, RoutedEventArgs e)
     {
         var uri = HotspotUriBox.Text.Trim();
-        if (string.IsNullOrEmpty(uri) || uri == "SOCKS endpoint appears after hotspot is detected.")
+        if (string.IsNullOrEmpty(uri))
         {
             ShowInfo(ConnectionInfoBar, InfoBarSeverity.Warning, "No URI to copy", "Hotspot is not active or IP not detected.");
             return;
@@ -509,8 +597,8 @@ public sealed partial class MainWindow : Window
             KillSwitchEnabled = KillSwitchToggle.IsOn,
             ShareWithLan = ShareWithLanSwitch.IsOn,
             LanSocksPort = double.IsNaN(LanSharePortBox.Value) ? 0 : (int)LanSharePortBox.Value,
-            LanSocksUsername = LanShareUsernameBox.Text.Trim(),
-            LanSocksPassword = LanSharePasswordBox.Password,
+            LanSocksUsername = ShareUsernameBox.Text.Trim(),
+            LanSocksPassword = SharePasswordBox.Password,
             ShareViaHotspot = ShareViaHotspotSwitch.IsOn,
             HotspotSocksPort = double.IsNaN(HotspotPortBox.Value) ? 10808 : (int)HotspotPortBox.Value,
             RegionalPreset = RegionalPresetBox.SelectedIndex == 1
@@ -583,9 +671,18 @@ public sealed partial class MainWindow : Window
         ShareViaHotspotSwitch.IsOn = source.ShareViaHotspot;
         HotspotPortBox.Value = source.HotspotSocksPort;
         LanSharePortBox.Value = source.LanSocksPort;
-        LanShareUsernameBox.Text = source.LanSocksUsername;
+        ShareUsernameBox.Text = source.LanSocksUsername;
+        UpdateSharedCredentialsVisibility();
         UpdateLanShareEndpointText();
-        UpdateHotspotEndpointText();
+        if (source.ShareViaHotspot)
+        {
+            DetectHotspot(notifyOnSuccess: false, notifyOnFailure: false);
+        }
+        else
+        {
+            UpdateHotspotEndpointText();
+            UpdateHotspotUri();
+        }
         RouteTcpCheckBox.IsChecked = source.RouteTcp;
         RouteUdpCheckBox.IsChecked = source.RouteUdp;
         RouteIpv4CheckBox.IsChecked = source.RouteIpv4;
@@ -634,7 +731,7 @@ public sealed partial class MainWindow : Window
         preferences.ShareViaHotspot = ShareViaHotspotSwitch.IsOn;
         preferences.HotspotSocksPort = double.IsNaN(HotspotPortBox.Value) ? 10808 : (int)HotspotPortBox.Value;
         preferences.LanSocksPort = double.IsNaN(LanSharePortBox.Value) ? 1082 : (int)LanSharePortBox.Value;
-        preferences.LanSocksUsername = LanShareUsernameBox.Text.Trim();
+        preferences.LanSocksUsername = ShareUsernameBox.Text.Trim();
         preferences.RouteTcp = RouteTcpCheckBox.IsChecked == true;
         preferences.RouteUdp = RouteUdpCheckBox.IsChecked == true;
         preferences.RouteIpv4 = RouteIpv4CheckBox.IsChecked == true;
@@ -766,9 +863,18 @@ public sealed partial class MainWindow : Window
             HotspotPortBox.Value = settings.HotspotSocksPort;
             HotspotOptions.Visibility = settings.ShareViaHotspot ? Visibility.Visible : Visibility.Collapsed;
             LanSharePortBox.Value = settings.LanSocksPort;
-            LanShareUsernameBox.Text = settings.LanSocksUsername;
+            ShareUsernameBox.Text = settings.LanSocksUsername;
+            UpdateSharedCredentialsVisibility();
             UpdateLanShareEndpointText();
-            UpdateHotspotEndpointText();
+            if (settings.ShareViaHotspot)
+            {
+                DetectHotspot(notifyOnSuccess: false, notifyOnFailure: false);
+            }
+            else
+            {
+                UpdateHotspotEndpointText();
+                UpdateHotspotUri();
+            }
             RegionalPresetBox.SelectedIndex = settings.RegionalPreset == RegionalRoutingPreset.None ? 1 : 0;
             DomainStrategyBox.SelectedIndex = settings.DomainStrategy switch
             {
@@ -796,7 +902,7 @@ public sealed partial class MainWindow : Window
 
             if (hasSavedLanSocksPassword)
             {
-                LanSharePasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
+                SharePasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
             }
         }
 
@@ -927,16 +1033,11 @@ public sealed partial class MainWindow : Window
         TransportKeyBox.Password = string.Empty;
         TransportKeyBox.PlaceholderText = "Saved securely · leave blank to keep it";
 
-        if (settings.ShareWithLan)
+        if (settings.ShareWithLan || settings.ShareViaHotspot)
         {
             hasSavedLanSocksPassword = true;
-            LanSharePasswordBox.Password = string.Empty;
-            LanSharePasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
-        }
-
-        if (settings.ShareViaHotspot)
-        {
-            // Hotspot secrets are managed separately; no password save needed for SOCKS-only
+            SharePasswordBox.Password = string.Empty;
+            SharePasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
         }
 
         UpdateLanShareEndpointText();
@@ -966,8 +1067,84 @@ public sealed partial class MainWindow : Window
         var address = HotspotIpBox.Text.Trim();
         var port = double.IsNaN(HotspotPortBox.Value) ? 10808 : (int)HotspotPortBox.Value;
         HotspotEndpointText.Text = string.IsNullOrEmpty(address)
-            ? "Hotspot unavailable — turn on Mobile hotspot, then Detect adapter details."
+            ? "Hotspot unavailable — turn on Mobile hotspot in Windows Settings, then click Detect hotspot."
             : $"SOCKS endpoint: {address}:{port}";
+    }
+
+    private void UpdateHotspotUri()
+    {
+        if (HotspotUriBox is null || HotspotIpBox is null || HotspotPortBox is null)
+        {
+            return;
+        }
+
+        var address = HotspotIpBox.Text.Trim();
+        if (string.IsNullOrEmpty(address))
+        {
+            HotspotUriBox.Text = string.Empty;
+            SyncGuideEndpoints();
+            return;
+        }
+
+        var port = double.IsNaN(HotspotPortBox.Value) ? 10808 : (int)HotspotPortBox.Value;
+        var username = ShareUsernameBox is not null && !string.IsNullOrWhiteSpace(ShareUsernameBox.Text)
+            ? ShareUsernameBox.Text.Trim()
+            : "paqetfire";
+
+        var password = SharePasswordBox is not null && !string.IsNullOrEmpty(SharePasswordBox.Password)
+            ? SharePasswordBox.Password
+            : (hasSavedLanSocksPassword ? "saved-password" : "password");
+
+        HotspotUriBox.Text = $"socks5://{username}:{password}@{address}:{port}";
+        SyncGuideEndpoints();
+    }
+
+    private void DetectHotspot(bool notifyOnSuccess = false, bool notifyOnFailure = false)
+    {
+        if (HotspotIpBox is null || HotspotEndpointText is null || HotspotUriBox is null || HotspotPortBox is null)
+        {
+            return;
+        }
+
+        var detector = new HotspotNetworkDetector();
+        var detected = detector.TryDetect();
+
+        if (detected is not null)
+        {
+            HotspotIpBox.Text = detected.Value.Address;
+            UpdateHotspotEndpointText();
+            UpdateHotspotUri();
+
+            if (notifyOnSuccess)
+            {
+                ShowInfo(ConnectionInfoBar, InfoBarSeverity.Success, "Hotspot detected",
+                    $"Detected active mobile hotspot at {detected.Value.Address} ({detected.Value.Name}).");
+                AddActivity($"Detected active mobile hotspot at {detected.Value.Address} ({detected.Value.Name}).");
+            }
+        }
+        else
+        {
+            HotspotIpBox.Text = string.Empty;
+            UpdateHotspotEndpointText();
+            UpdateHotspotUri();
+
+            if (notifyOnFailure)
+            {
+                ShowInfo(ConnectionInfoBar, InfoBarSeverity.Warning, "Hotspot not detected",
+                    "Turn on Mobile hotspot in Windows Settings first, then click Detect hotspot.");
+            }
+        }
+    }
+
+    private void OnNetworkAddressChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (ShareViaHotspotSwitch?.IsOn == true)
+            {
+                DetectHotspot(notifyOnSuccess: false, notifyOnFailure: false);
+            }
+        });
     }
 
     private void InitializeTrayIcon(string iconPath)
@@ -1129,6 +1306,15 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
+        if (V2rayNgGuideView is not null)
+        {
+            V2rayNgGuideView.BackRequested -= OnGuideBackRequested;
+        }
+        if (HappGuideView is not null)
+        {
+            HappGuideView.BackRequested -= OnGuideBackRequested;
+        }
         AppWindow.Closing -= OnAppWindowClosing;
         if (trayIcon is not null)
         {

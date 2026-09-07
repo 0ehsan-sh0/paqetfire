@@ -103,7 +103,7 @@ public static class PaqetFireSettingsValidator
                 string.IsNullOrEmpty(settings.LanSocksPassword) ||
                 settings.LanSocksPassword.Length is < 8 or > 128 ||
                 settings.LanSocksPassword.Any(char.IsControl))
-                errors.Add("Hotspot sharing reuses the LAN share username and password. Set a valid LAN username and password of at least 8 characters first.");
+                errors.Add("Hotspot sharing requires a valid proxy username (1 to 64 characters) and password (8 to 128 characters).");
         }
 
         if (settings.RoutingMode == RoutingMode.SelectedApplications &&

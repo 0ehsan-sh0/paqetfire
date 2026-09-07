@@ -32,6 +32,8 @@ public sealed class HotspotSharingTests
         Assert.Equal("192.168.137.1", hotspot.GetProperty("listen").GetString());
         Assert.Equal(10808, hotspot.GetProperty("port").GetInt32());
         Assert.Equal("password", hotspot.GetProperty("settings").GetProperty("auth").GetString());
+        Assert.Equal("paqetfire", hotspot.GetProperty("settings").GetProperty("accounts")[0].GetProperty("user").GetString());
+        Assert.Equal("correct-horse-1", hotspot.GetProperty("settings").GetProperty("accounts")[0].GetProperty("pass").GetString());
         Assert.True(hotspot.GetProperty("settings").GetProperty("udp").GetBoolean());
         Assert.False(hotspot.GetProperty("sniffing").GetProperty("routeOnly").GetBoolean());
     }
@@ -61,8 +63,26 @@ public sealed class HotspotSharingTests
         {
             Assert.Contains(
                 PaqetFireSettingsValidator.Validate(settings),
-                error => error.Contains("Hotspot sharing reuses the LAN share username and password", StringComparison.Ordinal));
+                error => error.Contains("Hotspot sharing requires a valid proxy username", StringComparison.Ordinal));
         }
+    }
+
+    [Fact]
+    public void HotspotOnly_ValidSettings_PassesValidationWithoutLanShare()
+    {
+        var settings = new PaqetFireSettings
+        {
+            ServerEndpoint = "example.com:8443",
+            TransportKey = "secret",
+            ShareWithLan = false,
+            ShareViaHotspot = true,
+            HotspotSocksPort = 10808,
+            LanSocksUsername = "paqetfire",
+            LanSocksPassword = "correct-horse-battery",
+        };
+
+        var errors = PaqetFireSettingsValidator.Validate(settings);
+        Assert.Empty(errors);
     }
 
     [Theory]
@@ -73,6 +93,14 @@ public sealed class HotspotSharingTests
     public void IsHotspotAddress_MatchesOnlyIcsDefaults(string ip, bool expected)
     {
         Assert.Equal(expected, HotspotNetworkDetector.IsHotspotAddress(System.Net.IPAddress.Parse(ip)));
+    }
+
+    [Fact]
+    public void CoreHotspotNetworkDetector_IsDirectlyUsable()
+    {
+        var detector = new PaqetFire.Core.Network.HotspotNetworkDetector();
+        Assert.NotNull(detector);
+        Assert.True(PaqetFire.Core.Network.HotspotNetworkDetector.IsHotspotAddress(System.Net.IPAddress.Parse("192.168.137.1")));
     }
 
     [Fact]
