@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Text.Json;
+using PaqetFire.Broker.Network;
 using PaqetFire.Core.Configuration;
 using Xunit;
 
@@ -55,5 +56,15 @@ public sealed class HotspotSharingTests
                 PaqetFireSettingsValidator.Validate(settings),
                 error => error.Contains("Hotspot sharing reuses the LAN share username and password", StringComparison.Ordinal));
         }
+    }
+
+    [Theory]
+    [InlineData("192.168.137.1", true)]
+    [InlineData("192.168.173.5", true)]
+    [InlineData("192.168.1.10", false)]
+    [InlineData("10.0.0.5", false)]
+    public void IsHotspotAddress_MatchesOnlyIcsDefaults(string ip, bool expected)
+    {
+        Assert.Equal(expected, HotspotNetworkDetector.IsHotspotAddress(System.Net.IPAddress.Parse(ip)));
     }
 }
