@@ -39,3 +39,17 @@ _Avoid_: Open proxy, repeater, ICS sharing, transparent NAT
 **Hotspot client**:
 A phone, tablet, or PC joined to the hotspot network that sends traffic to the hotspot share.
 _Avoid_: Peer, user, guest
+
+**Hotspot client guide**:
+In-app step-by-step onboarding walkthroughs for connecting mobile SOCKS clients (v2rayNG, HAPP/Hiddify) to the hotspot share.
+_Avoid_: Manual, tutorial, docs website
+
+**Shared proxy credentials**:
+The common authentication username and password used across all inbound share listeners (LAN share and Hotspot share) for local devices.
+_Avoid_: Master password, account, user credentials
+
+**Local network bypass**:
+Routing policy directive that routes local subnet and private IP traffic directly rather than capturing it into PaqetFire, required for hotspot sharing and LAN device reachability.
+_Avoid_: LAN exclusion, local whitelist
+
+

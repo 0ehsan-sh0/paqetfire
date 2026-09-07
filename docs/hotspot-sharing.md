@@ -15,8 +15,7 @@ When sharing is enabled, another device uses:
 - server: the IPv4 address displayed by PaqetFire (usually `192.168.137.1`);
 - port: the configured hotspot SOCKS5 port (default `10808`);
 - protocol: SOCKS5;
-- username and password: the values saved in PaqetFire (reused from LAN
-  credentials).
+- username and password: the shared proxy credentials configured in PaqetFire.
 
 SOCKS5 authentication is access control, not encryption. Anyone able to observe
 the local network may be able to inspect SOCKS5 traffic and credentials. Use the
@@ -36,20 +35,32 @@ are restricted to SYSTEM and Administrators with protected Windows ACLs.
   before clicking **Detect** in PaqetFire).
 - Paqet is connected to your server (the server endpoint and transport key must
   be configured).
+- **Local network devices (Direct access)** must be enabled so hotspot clients
+  can communicate with the host without local traffic being redirected into the
+  proxy. If disabled, turning on Hotspot SOCKS proxy will automatically prompt
+  to enable it.
 
 ## Desktop steps
 
 1. Open PaqetFire and go to the **Routing** page.
-2. Enable **Hotspot SOCKS proxy** (the top toggle under **Share with your network**).
-3. Ensure the mobile hotspot is active on the laptop; the hotspot address
+2. Enable **Hotspot SOCKS proxy**. If prompted, confirm enabling direct access for local network devices.
+3. Configure the shared proxy username and password in the **Proxy authentication** card if not already set.
+4. Ensure the mobile hotspot is active on the laptop; the hotspot address
    field will populate (usually `192.168.137.1`).
-4. The **SOCKS endpoint** text will update to show `socks5://user:pass@192.168.137.1:10808`.
-5. Click **Copy** to copy the SOCKS URI to the clipboard.
+5. The **SOCKS endpoint** text will update to show `socks5://user:pass@192.168.137.1:10808`.
+6. Click **Copy** to copy the SOCKS URI to the clipboard.
 
 ## Phone setup (SOCKS app required)
 
 Bare Android/iOS WiFi Settings proxy is HTTP‑only and explicitly unsupported. A
-SOCKS‑compatible app is required:
+SOCKS‑compatible app is required. PaqetFire includes dedicated, interactive visual
+guides for both apps directly below the Hotspot sharing card:
+
+- **v2rayNG Guide** (Android step-by-step setup)
+- **HAPP / Hiddify Guide** (iOS, Android, and Desktop setup)
+
+Clicking either guide in PaqetFire provides 1-click copy buttons for your active
+hotspot IP, port, credentials, and full SOCKS URI.
 
 ### v2rayNG
 
@@ -79,10 +90,10 @@ SOCKS‑compatible app is required:
 - The same regional/direct‑routing, ad‑blocking, QUIC and BitTorrent policy
   that applies to LAN clients also applies to hotspot clients — the route is
   shared.
-- If the hotspot is turned off, the broker will detect the absence and show
-  **"Hotspot unavailable — turn on Mobile hotspot, then Detect adapter
-  details."** Re‑enabling the hotspot and clicking **Detect** restores the
-  share.
+- If the hotspot is turned off, PaqetFire will show
+  **"Hotspot unavailable — turn on Mobile hotspot in Windows Settings, then click Detect hotspot."**
+  Turning the hotspot back on automatically updates the status, or clicking **Detect hotspot**
+  refreshes it immediately.
 - Only one radio can be used for both Wi‑Fi connection and hotspot broadcasting
   on many laptop drivers; if you experience failures, prefer an Ethernet
   upstream connection.
