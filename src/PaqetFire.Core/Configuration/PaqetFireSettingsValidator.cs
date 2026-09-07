@@ -97,7 +97,12 @@ public static class PaqetFireSettingsValidator
                 errors.Add("The hotspot SOCKS port must be between 1024 and 65535 and cannot be 1080 or 1081.");
             if (settings.ShareWithLan && settings.HotspotSocksPort == settings.LanSocksPort)
                 errors.Add("The hotspot port must differ from the LAN share port.");
-            if (string.IsNullOrWhiteSpace(settings.LanSocksUsername) || string.IsNullOrEmpty(settings.LanSocksPassword) || settings.LanSocksPassword.Length < 8)
+            if (string.IsNullOrWhiteSpace(settings.LanSocksUsername) ||
+                settings.LanSocksUsername.Length > 64 ||
+                settings.LanSocksUsername.Any(char.IsControl) ||
+                string.IsNullOrEmpty(settings.LanSocksPassword) ||
+                settings.LanSocksPassword.Length is < 8 or > 128 ||
+                settings.LanSocksPassword.Any(char.IsControl))
                 errors.Add("Hotspot sharing reuses the LAN share username and password. Set a valid LAN username and password of at least 8 characters first.");
         }
 

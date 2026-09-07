@@ -27,4 +27,33 @@ public sealed class HotspotSharingTests
         Assert.True(hotspot.GetProperty("settings").GetProperty("udp").GetBoolean());
         Assert.False(hotspot.GetProperty("sniffing").GetProperty("routeOnly").GetBoolean());
     }
+
+    [Fact]
+    public void HotspotOnly_RejectsCredentialsOutsideLanRules()
+    {
+        static PaqetFireSettings HotspotOnly(string username, string password) => new()
+        {
+            ServerEndpoint = "example.com:8443",
+            TransportKey = "secret",
+            ShareViaHotspot = true,
+            HotspotSocksPort = 10808,
+            LanSocksUsername = username,
+            LanSocksPassword = password,
+        };
+
+        var cases = new[]
+        {
+            HotspotOnly(new string('u', 100), "correct-horse-1"),
+            HotspotOnly("bad\tuser", "correct-horse-1"),
+            HotspotOnly("paqetfire", new string('p', 129)),
+            HotspotOnly("paqetfire", "bad\tpassword"),
+        };
+
+        foreach (var settings in cases)
+        {
+            Assert.Contains(
+                PaqetFireSettingsValidator.Validate(settings),
+                error => error.Contains("Hotspot sharing reuses the LAN share username and password", StringComparison.Ordinal));
+        }
+    }
 }
