@@ -424,6 +424,8 @@ public sealed class PaqetFireRuntime(
         1082,
         "paqetfire",
         false,
+        false,
+        10808,
         "fast",
         ["PA"],
         ["PA"]);

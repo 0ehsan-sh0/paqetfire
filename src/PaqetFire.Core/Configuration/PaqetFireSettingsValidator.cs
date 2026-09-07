@@ -90,6 +90,17 @@ public static class PaqetFireSettingsValidator
             }
         }
 
+        if (settings.ShareViaHotspot)
+        {
+            if (settings.HotspotSocksPort is < 1024 or > 65535 ||
+                settings.HotspotSocksPort is XrayJsonConfigurationWriter.PaqetPort or XrayJsonConfigurationWriter.InboundPort)
+                errors.Add("The hotspot SOCKS port must be between 1024 and 65535 and cannot be 1080 or 1081.");
+            if (settings.ShareWithLan && settings.HotspotSocksPort == settings.LanSocksPort)
+                errors.Add("The hotspot port must differ from the LAN share port.");
+            if (string.IsNullOrWhiteSpace(settings.LanSocksUsername) || string.IsNullOrEmpty(settings.LanSocksPassword) || settings.LanSocksPassword.Length < 8)
+                errors.Add("Hotspot sharing reuses the LAN share username and password. Set a valid LAN username and password of at least 8 characters first.");
+        }
+
         if (settings.RoutingMode == RoutingMode.SelectedApplications &&
             (settings.SelectedApplications is null || settings.SelectedApplications.Count == 0))
         {
