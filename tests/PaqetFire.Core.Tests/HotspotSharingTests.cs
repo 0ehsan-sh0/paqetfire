@@ -67,4 +67,22 @@ public sealed class HotspotSharingTests
     {
         Assert.Equal(expected, HotspotNetworkDetector.IsHotspotAddress(System.Net.IPAddress.Parse(ip)));
     }
+
+    [Fact]
+    public void HotspotValidation_RejectsCollisionWithLanPort()
+    {
+        var settings = new PaqetFireSettings
+        {
+            ServerEndpoint = "example.com:8443",
+            TransportKey = "secret",
+            ShareWithLan = true,
+            LanSocksPort = 10808,
+            LanSocksUsername = "paqetfire",
+            LanSocksPassword = "correct-horse-1",
+            ShareViaHotspot = true,
+            HotspotSocksPort = 10808,
+        };
+        Assert.Contains(PaqetFireSettingsValidator.Validate(settings),
+            e => e.Contains("must differ", StringComparison.OrdinalIgnoreCase));
+    }
 }

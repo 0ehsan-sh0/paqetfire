@@ -82,6 +82,9 @@ Trusted LAN devices can optionally enter through a separate authenticated Xray
 SOCKS5 listener. ProxiFyre is not involved in LAN-client traffic, but the same
 Xray regional and blocking policy applies.
 
+Trusted devices on the Windows mobile hotspot can also enter through the same
+SOCKS5 listener, sharing the identical Xray regional and blocking policy.
+
 ## Requirements
 
 - Windows 10 version 2004 (build 19041) or newer, x64.

@@ -264,8 +264,24 @@ public sealed partial class MainWindow : Window
         UpdateLanShareEndpointText();
     }
 
+    private void ShareViaHotspotSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (HotspotOptions is null)
+        {
+            return;
+        }
+
+        HotspotOptions.Visibility = ShareViaHotspotSwitch.IsOn
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateHotspotEndpointText();
+    }
+
     private void LanSharePortBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
         UpdateLanShareEndpointText();
+
+    private void HotspotPortBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
+        UpdateHotspotEndpointText();
 
     private async void SaveProfileButton_Click(object sender, RoutedEventArgs e)
     {
@@ -458,6 +474,21 @@ public sealed partial class MainWindow : Window
         AddActivity("Activity log cleared.");
     }
 
+    private void CopyHotspotUriButton_Click(object sender, RoutedEventArgs e)
+    {
+        var uri = HotspotUriBox.Text.Trim();
+        if (string.IsNullOrEmpty(uri) || uri == "SOCKS endpoint appears after hotspot is detected.")
+        {
+            ShowInfo(ConnectionInfoBar, InfoBarSeverity.Warning, "No URI to copy", "Hotspot is not active or IP not detected.");
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText(uri);
+        Clipboard.SetContent(package);
+        AddActivity("Hotspot SOCKS URI copied to the clipboard.");
+    }
+
     private bool TryCreateBrokerSettings(out PaqetFireSettings settings, out string error)
     {
         settings = new PaqetFireSettings
@@ -480,6 +511,8 @@ public sealed partial class MainWindow : Window
             LanSocksPort = double.IsNaN(LanSharePortBox.Value) ? 0 : (int)LanSharePortBox.Value,
             LanSocksUsername = LanShareUsernameBox.Text.Trim(),
             LanSocksPassword = LanSharePasswordBox.Password,
+            ShareViaHotspot = ShareViaHotspotSwitch.IsOn,
+            HotspotSocksPort = double.IsNaN(HotspotPortBox.Value) ? 10808 : (int)HotspotPortBox.Value,
             RegionalPreset = RegionalPresetBox.SelectedIndex == 1
                 ? RegionalRoutingPreset.None
                 : RegionalRoutingPreset.IranDirect,
@@ -547,9 +580,12 @@ public sealed partial class MainWindow : Window
         DirectBitTorrentSwitch.IsOn = source.DirectBitTorrent;
         KillSwitchToggle.IsOn = source.KillSwitch;
         ShareWithLanSwitch.IsOn = source.ShareWithLan;
+        ShareViaHotspotSwitch.IsOn = source.ShareViaHotspot;
+        HotspotPortBox.Value = source.HotspotSocksPort;
         LanSharePortBox.Value = source.LanSocksPort;
         LanShareUsernameBox.Text = source.LanSocksUsername;
         UpdateLanShareEndpointText();
+        UpdateHotspotEndpointText();
         RouteTcpCheckBox.IsChecked = source.RouteTcp;
         RouteUdpCheckBox.IsChecked = source.RouteUdp;
         RouteIpv4CheckBox.IsChecked = source.RouteIpv4;
@@ -595,6 +631,8 @@ public sealed partial class MainWindow : Window
         preferences.DirectBitTorrent = DirectBitTorrentSwitch.IsOn;
         preferences.KillSwitch = KillSwitchToggle.IsOn;
         preferences.ShareWithLan = ShareWithLanSwitch.IsOn;
+        preferences.ShareViaHotspot = ShareViaHotspotSwitch.IsOn;
+        preferences.HotspotSocksPort = double.IsNaN(HotspotPortBox.Value) ? 10808 : (int)HotspotPortBox.Value;
         preferences.LanSocksPort = double.IsNaN(LanSharePortBox.Value) ? 1082 : (int)LanSharePortBox.Value;
         preferences.LanSocksUsername = LanShareUsernameBox.Text.Trim();
         preferences.RouteTcp = RouteTcpCheckBox.IsChecked == true;
@@ -725,9 +763,12 @@ public sealed partial class MainWindow : Window
             RouteIpv6CheckBox.IsChecked = settings.RouteIpv6;
             KillSwitchToggle.IsOn = settings.KillSwitchEnabled;
             ShareWithLanSwitch.IsOn = settings.ShareWithLan;
+            HotspotPortBox.Value = settings.HotspotSocksPort;
+            HotspotOptions.Visibility = settings.ShareViaHotspot ? Visibility.Visible : Visibility.Collapsed;
             LanSharePortBox.Value = settings.LanSocksPort;
             LanShareUsernameBox.Text = settings.LanSocksUsername;
             UpdateLanShareEndpointText();
+            UpdateHotspotEndpointText();
             RegionalPresetBox.SelectedIndex = settings.RegionalPreset == RegionalRoutingPreset.None ? 1 : 0;
             DomainStrategyBox.SelectedIndex = settings.DomainStrategy switch
             {
@@ -893,6 +934,11 @@ public sealed partial class MainWindow : Window
             LanSharePasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
         }
 
+        if (settings.ShareViaHotspot)
+        {
+            // Hotspot secrets are managed separately; no password save needed for SOCKS-only
+        }
+
         UpdateLanShareEndpointText();
     }
 
@@ -908,6 +954,20 @@ public sealed partial class MainWindow : Window
         LanShareEndpointText.Text = string.IsNullOrEmpty(address)
             ? $"SOCKS5 endpoint: this computer's LAN IPv4 address:{port}"
             : $"SOCKS5 endpoint: {address}:{port}";
+    }
+
+    private void UpdateHotspotEndpointText()
+    {
+        if (HotspotEndpointText is null || HotspotPortBox is null || HotspotIpBox is null)
+        {
+            return;
+        }
+
+        var address = HotspotIpBox.Text.Trim();
+        var port = double.IsNaN(HotspotPortBox.Value) ? 10808 : (int)HotspotPortBox.Value;
+        HotspotEndpointText.Text = string.IsNullOrEmpty(address)
+            ? "Hotspot unavailable — turn on Mobile hotspot, then Detect adapter details."
+            : $"SOCKS endpoint: {address}:{port}";
     }
 
     private void InitializeTrayIcon(string iconPath)

@@ -354,6 +354,30 @@
 
             <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
               <StackPanel Spacing="14">
+                <TextBlock Text="Hotspot sharing" FontSize="18" FontWeight="SemiBold" />
+                <ToggleSwitch x:Name="ShareViaHotspotSwitch" Header="Hotspot SOCKS proxy"
+                              OnContent="Available to devices on the laptop hotspot"
+                              OffContent="Off" Toggled="ShareViaHotspotSwitch_Toggled" />
+                <TextBlock Text="Turn on Mobile hotspot in Windows Settings first. PaqetFire detects the hotspot address (usually 192.168.137.1) and shares the same route as LAN clients. SOCKS-only — phones need a SOCKS app."
+                          FontSize="12" Opacity="0.68" TextWrapping="Wrap" />
+                <StackPanel x:Name="HotspotOptions" Spacing="12" Visibility="Collapsed">
+                  <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="180"/></Grid.ColumnDefinitions>
+                    <TextBox x:Name="HotspotIpBox" Header="Hotspot address" IsReadOnly="True" PlaceholderText="Detect while hotspot is on" />
+                    <NumberBox x:Name="HotspotPortBox" Grid.Column="1" Header="Port" Value="10808" Minimum="1024" Maximum="65535" SpinButtonPlacementMode="Compact" ValueChanged="HotspotPortBox_ValueChanged" />
+                  </Grid>
+                  <TextBlock x:Name="HotspotEndpointText" Text="SOCKS endpoint appears after hotspot is detected." FontWeight="SemiBold" TextWrapping="Wrap" />
+<TextBox x:Name="HotspotUriBox" Header="SOCKS URI for v2rayNG / HAPP (Hiddify)" IsReadOnly="True" PlaceholderText="socks5://user:pass@192.168.137.1:10808" />
+                  <Button Content="Copy" Click="CopyHotspotUriButton_Click" Margin="0,8,0,0" HorizontalAlignment="Right" />
+                  <TextBlock Text="v2rayNG: Outbound → + → Socks → address = hotspot IP, port = above, user/pass = LAN credentials. HAPP/Hiddify: Proxy → Add → SOCKS5, same fields, enable Remote DNS. Bare WiFi Settings proxy will NOT work (HTTP-only)." FontSize="12" Opacity="0.68" TextWrapping="Wrap" />
+                  <Border Padding="12" CornerRadius="10" Background="#18FFB020">
+                    <TextBlock Text="Same warning as LAN: SOCKS does not encrypt phone→laptop traffic. Keep hotspot WPA2 password strong and never forward this port." FontSize="12" TextWrapping="Wrap" />
+                  </Border>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+              <StackPanel Spacing="14">
                 <TextBlock Text="Protocols" FontSize="18" FontWeight="SemiBold" />
                 <TextBlock Text="Choose at least one protocol and address family for applications routed through ProxiFyre. LAN SOCKS5 clients use Xray's routing rules independently."
                            Opacity="0.65" TextWrapping="Wrap" />
