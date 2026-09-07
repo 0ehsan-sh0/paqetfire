@@ -39,6 +39,8 @@ public sealed partial class MainWindow : Window
     private bool trayNoticeShown;
     private bool prerequisiteActionInProgress;
     private bool isUpdatingHotspotInterlock;
+    private bool configurationSaveInProgress;
+    private bool trackingConfigurationChanges;
 
     public ConnectionViewModel ViewModel { get; }
 
@@ -48,7 +50,7 @@ public sealed partial class MainWindow : Window
     {
         var dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()
             ?? throw new InvalidOperationException("The UI dispatcher is unavailable.");
-        ViewModel = new ConnectionViewModel(new NamedPipeBrokerClient(), dispatcherQueue);
+        ViewModel = new ConnectionViewModel(new NamedPipeBrokerClient(), new WinUiDispatcher(dispatcherQueue));
         ViewModel.ActivityOccurred += OnActivityOccurred;
         ViewModel.SnapshotReceived += OnSnapshotReceived;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -92,6 +94,7 @@ public sealed partial class MainWindow : Window
         preferences = await preferencesStore.LoadAsync();
         ApplyPreferences(preferences);
         await ViewModel.RefreshAsync();
+        TrackConfigurationChanges();
 
         if (preferences.ConnectOnLaunch && ViewModel.CanConnect)
         {
@@ -287,6 +290,7 @@ public sealed partial class MainWindow : Window
 
     private void RoutingModeButtons_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        ConfigurationEdited();
         var selectedOnly = RoutingModeButtons.SelectedIndex == 1;
         SelectedAppsCard.Visibility = selectedOnly ? Visibility.Visible : Visibility.Collapsed;
         RoutingModeHelpText.Text = selectedOnly
@@ -465,111 +469,203 @@ public sealed partial class MainWindow : Window
     private void DetectHotspotButton_Click(object sender, RoutedEventArgs e) =>
         DetectHotspot(notifyOnSuccess: true, notifyOnFailure: true);
 
-    private async void SaveProfileButton_Click(object sender, RoutedEventArgs e)
+    private void TrackConfigurationChanges()
     {
-        if (!TryCreateBrokerSettings(out var settings, out var errors))
+        trackingConfigurationChanges = true;
+        foreach (var control in ConfigurationControls())
         {
-            ShowInfo(ConnectionInfoBar, InfoBarSeverity.Error, "Fix the connection profile", errors);
-            return;
-        }
-
-        CapturePreferences();
-        if (await TrySavePreferencesAsync() && await ViewModel.SaveSettingsAsync(settings))
-        {
-            MarkSecretsSaved(settings);
-            ShowInfo(
-                ConnectionInfoBar,
-                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
-                ViewModel.HasError ? "Profile saved — connection needs attention" : "Profile applied",
-                ViewModel.ErrorMessage ?? "The broker validated the profile and generated all three engine configurations.");
-            AddActivity($"Connection profile '{preferences.ProfileName}' saved.");
-        }
-        else if (ViewModel.HasError)
-        {
-            ShowInfo(ConnectionInfoBar, InfoBarSeverity.Error, "Profile was not applied", ViewModel.ErrorMessage ?? "The broker rejected the profile.");
+            switch (control)
+            {
+                case TextBox box when !box.IsReadOnly:
+                    box.TextChanged += (_, _) => ConfigurationEdited(); break;
+                case PasswordBox box:
+                    box.PasswordChanged += (_, _) => ConfigurationEdited(); break;
+                case NumberBox box:
+                    box.ValueChanged += (_, _) => ConfigurationEdited(); break;
+                case ComboBox box:
+                    box.SelectionChanged += (_, _) => ConfigurationEdited(); break;
+                case ListView list:
+                    list.SelectionChanged += (_, _) => ConfigurationEdited(); break;
+                case ToggleSwitch toggle:
+                    toggle.Toggled += (_, _) => ConfigurationEdited(); break;
+                case CheckBox check:
+                    check.Checked += (_, _) => ConfigurationEdited();
+                    check.Unchecked += (_, _) => ConfigurationEdited(); break;
+            }
         }
     }
 
-    private async void SaveAndConnectButton_Click(object sender, RoutedEventArgs e)
+    private void ConfigurationEdited()
     {
-        if (!TryCreateBrokerSettings(out var settings, out var errors))
-        {
-            ShowInfo(ConnectionInfoBar, InfoBarSeverity.Error, "Cannot connect yet", errors);
-            return;
-        }
-
-        CapturePreferences();
-        if (!await TrySavePreferencesAsync())
-        {
-            return;
-        }
-
-        ShowInfo(ConnectionInfoBar, InfoBarSeverity.Informational, "Applying profile", "The broker is validating the profile and routing policy.");
-        if (await ViewModel.SaveSettingsAsync(settings, connectAfterSave: true))
-        {
-            MarkSecretsSaved(settings);
-            ShowInfo(
-                ConnectionInfoBar,
-                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
-                ViewModel.HasError ? "Profile saved — connection failed" : "Connected",
-                ViewModel.ErrorMessage ?? "The profile was saved and the PaqetFire route is active.");
-        }
-        else
-        {
-            ShowInfo(ConnectionInfoBar, InfoBarSeverity.Error, "Could not start", ViewModel.ErrorMessage ?? "The broker rejected the profile.");
-        }
+        if (!trackingConfigurationChanges || configurationSaveInProgress) return;
+        SetPendingChanges(true);
+        ConnectionInfoBar.IsOpen = RoutingInfoBar.IsOpen = false;
+        ClearFieldErrors();
     }
 
-    private async void SaveRoutingButton_Click(object sender, RoutedEventArgs e)
+    private void SetPendingChanges(bool pending)
     {
-        if (!TryCreateBrokerSettings(out var settings, out var error))
-        {
-            ShowInfo(RoutingInfoBar, InfoBarSeverity.Error, "Fix the routing policy", error);
-            return;
-        }
-
-        CapturePreferences();
-        if (await TrySavePreferencesAsync() && await ViewModel.SaveSettingsAsync(settings))
-        {
-            MarkSecretsSaved(settings);
-            ShowInfo(
-                RoutingInfoBar,
-                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
-                ViewModel.HasError ? "Policy saved — connection needs attention" : "Routing policy applied",
-                ViewModel.ErrorMessage ?? "The broker regenerated the ProxiFyre route safely.");
-            AddActivity(preferences.RouteAllApplications
-                ? "Routing policy saved: all applications."
-                : "Routing policy saved: selected applications.");
-        }
+        ConnectionPendingText.Text = RoutingPendingText.Text = pending
+            ? "Pending changes � save to apply the connection profile and routing policy."
+            : "No pending changes.";
     }
 
-    private async void SaveRoutingAndConnectButton_Click(object sender, RoutedEventArgs e)
+    private IEnumerable<Control> ConfigurationControls() =>
+        new Control[] { ProfileNameBox, ServerEndpointBox, TransportKeyBox, KcpModeBox,
+            LocalFlagsBox, RemoteFlagsBox, RoutingModeButtons, SelectedApplicationsBox,
+            UserExclusionsBox, BypassLanSwitch, RegionalPresetBox, DomainStrategyBox,
+            BlockAdsSwitch, BlockQuicSwitch, DirectBitTorrentSwitch, KillSwitchToggle,
+            ShareWithLanSwitch, LanSharePortBox,
+            ShareViaHotspotSwitch, HotspotPortBox,
+            ShareUsernameBox, SharePasswordBox,
+            RouteTcpCheckBox, RouteUdpCheckBox, RouteIpv4CheckBox, RouteIpv6CheckBox };
+
+    private void SetSaveActionsEnabled(bool enabled)
     {
-        if (!TryCreateBrokerSettings(out var settings, out var profileErrors))
-        {
-            ShowInfo(RoutingInfoBar, InfoBarSeverity.Error, "Connection profile needs attention", profileErrors);
-            return;
-        }
+        if (ConnectionSaveActions is null || RoutingSaveActions is null) return;
+        foreach (var button in ConnectionSaveActions.Children.Concat(RoutingSaveActions.Children).OfType<Button>())
+            button.IsEnabled = enabled;
+    }
 
-        CapturePreferences();
-        if (!await TrySavePreferencesAsync())
-        {
-            return;
-        }
+    private void SetConfigurationEditingEnabled(bool enabled)
+    {
+        foreach (var control in ConfigurationControls()) control.IsEnabled = enabled;
+    }
 
-        ShowInfo(RoutingInfoBar, InfoBarSeverity.Informational, "Applying policy", "The broker is validating the complete configuration.");
-        if (await ViewModel.SaveSettingsAsync(settings, connectAfterSave: true))
+    private void FormGrid_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (sender is not Grid grid || grid.ColumnDefinitions.Count < 2) return;
+        var scale = new Windows.UI.ViewManagement.UISettings().TextScaleFactor;
+        var narrow = args.NewSize.Width < grid.ColumnDefinitions.Count * 220 * scale;
+        var children = grid.Children.OfType<FrameworkElement>().ToArray();
+        if (grid.RowDefinitions.Count != children.Length)
         {
+            grid.RowDefinitions.Clear();
+            foreach (var child in children) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+        grid.RowSpacing = narrow ? 14 : 0;
+        for (var index = 0; index < children.Length; index++)
+        {
+            Grid.SetRow(children[index], narrow ? index : 0);
+            Grid.SetColumn(children[index], narrow ? 0 : index);
+            Grid.SetColumnSpan(children[index], narrow ? grid.ColumnDefinitions.Count : 1);
+        }
+        if (ConnectionSaveActions is null || RoutingSaveActions is null) return;
+        ConnectionSaveActions.Orientation = RoutingSaveActions.Orientation =
+            (RoutingPage.Visibility == Visibility.Visible ? RoutingPage.ActualWidth : ConnectionPage.ActualWidth) < 520 * scale ? Orientation.Vertical : Orientation.Horizontal;
+    }
+
+    private readonly List<(Panel Parent, TextBlock Error)> fieldErrors = [];
+
+    private void ClearFieldErrors()
+    {
+        foreach (var (parent, error) in fieldErrors) parent.Children.Remove(error);
+        fieldErrors.Clear();
+        foreach (var control in ConfigurationControls())
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(control, string.Empty);
+    }
+
+    private void ShowFieldErrors(IReadOnlyList<string> errors)
+    {
+        ClearFieldErrors();
+        AdvancedTransportExpander.IsExpanded |= errors.Any(message => message.Contains("TCP flag") || message.Contains("KCP mode"));
+        Control? first = null;
+        foreach (var message in errors)
+        {
+            var control = message switch
+            {
+                var m when m.Contains("profile name") => (Control)ProfileNameBox,
+                var m when m.Contains("server must") => ServerEndpointBox,
+                var m when m.Contains("transport key") => TransportKeyBox,
+                var m when m.Contains("KCP mode") => KcpModeBox,
+                var m when m.Contains("local TCP") => LocalFlagsBox,
+                var m when m.Contains("remote TCP") => RemoteFlagsBox,
+                var m when m.Contains("hotspot") && m.Contains("port") => HotspotPortBox,
+                var m when m.Contains("SOCKS5 port") => LanSharePortBox,
+                var m when m.Contains("username") => ShareUsernameBox,
+                var m when m.Contains("password") => SharePasswordBox,
+                var m when m.Contains("exclusion") => UserExclusionsBox,
+                var m when m.Contains("application", StringComparison.OrdinalIgnoreCase) => SelectedApplicationsBox,
+                var m when m.Contains("protocol") => RouteTcpCheckBox,
+                var m when m.Contains("address family") => RouteIpv4CheckBox,
+                var m when m.Contains("regional") => RegionalPresetBox,
+                var m when m.Contains("domain strategy") => DomainStrategyBox,
+                _ => (Control)RoutingModeButtons,
+            };
+            first ??= control;
+            // Place the message immediately after the field's row without changing its header.
+            DependencyObject row = control;
+            while (VisualTreeHelper.GetParent(row) is DependencyObject parent && parent is not StackPanel)
+                row = parent;
+            if (VisualTreeHelper.GetParent(row) is StackPanel panel && row is UIElement rowElement)
+            {
+                var error = new TextBlock { Text = $"Error: {message}", TextWrapping = TextWrapping.Wrap,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+                panel.Children.Insert(panel.Children.IndexOf(rowElement) + 1, error);
+                fieldErrors.Add((panel, error));
+            }
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(control, message);
+        }
+        if (first is null) return;
+        NavigateTo(new Control[] { ProfileNameBox, ServerEndpointBox, TransportKeyBox, KcpModeBox, LocalFlagsBox, RemoteFlagsBox }.Contains(first) ? "connection" : "routing");
+        for (DependencyObject? ancestor = first; ancestor is not null; ancestor = VisualTreeHelper.GetParent(ancestor))
+            if (ancestor is Expander expander) expander.IsExpanded = true;
+        var invalidControl = first;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            invalidControl.Focus(FocusState.Programmatic);
+            invalidControl.StartBringIntoView();
+        });
+    }
+
+    private async void SaveProfileButton_Click(object sender, RoutedEventArgs e) =>
+        await SaveConfigurationAsync(ConnectionInfoBar, false);
+
+    private async void SaveAndConnectButton_Click(object sender, RoutedEventArgs e) =>
+        await SaveConfigurationAsync(ConnectionInfoBar, true);
+
+    private async void SaveRoutingButton_Click(object sender, RoutedEventArgs e) =>
+        await SaveConfigurationAsync(RoutingInfoBar, false);
+
+    private async void SaveRoutingAndConnectButton_Click(object sender, RoutedEventArgs e) =>
+        await SaveConfigurationAsync(RoutingInfoBar, true);
+
+    private async Task SaveConfigurationAsync(InfoBar feedback, bool connectAfterSave)
+    {
+        if (configurationSaveInProgress || ViewModel.IsBusy) return;
+        configurationSaveInProgress = true;
+        SetSaveActionsEnabled(false);
+        ConnectionInfoBar.IsOpen = RoutingInfoBar.IsOpen = false;
+        try
+        {
+            if (!TryCreateBrokerSettings(out var settings, out var errors))
+            {
+                ShowInfo(feedback, InfoBarSeverity.Error, "Configuration needs attention", errors);
+                return;
+            }
+            SetConfigurationEditingEnabled(false);
+            ShowInfo(feedback, InfoBarSeverity.Informational, "Applying configuration",
+                "Saving both the connection profile and routing policy. An active connection will restart.");
+            CapturePreferences();
+            if (!await TrySavePreferencesAsync(feedback)) return;
+            if (!await ViewModel.SaveSettingsAsync(settings, connectAfterSave))
+            {
+                ShowInfo(feedback, InfoBarSeverity.Error, "Configuration was not applied",
+                    ViewModel.ErrorMessage ?? "The broker rejected the configuration. Try saving again.");
+                return;
+            }
             MarkSecretsSaved(settings);
-            ShowInfo(
-                RoutingInfoBar,
-                ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
-                ViewModel.HasError ? "Policy saved — connection failed" : "Connected",
-                ViewModel.ErrorMessage ?? "The routing policy was saved and the PaqetFire route is active.");
+            SetPendingChanges(false);
+            ShowInfo(feedback, ViewModel.HasError ? InfoBarSeverity.Warning : InfoBarSeverity.Success,
+                ViewModel.HasError ? "Saved � connection needs attention" : "Configuration applied",
+                ViewModel.ErrorMessage ?? "The connection profile and routing policy were saved together.");
+            AddActivity("Connection profile and routing policy saved.");
         }
-        else
+        finally
         {
-            ShowInfo(RoutingInfoBar, InfoBarSeverity.Error, "Could not start", ViewModel.ErrorMessage ?? "The broker rejected the configuration.");
+            configurationSaveInProgress = false;
+            SetConfigurationEditingEnabled(true);
+            SetSaveActionsEnabled(!ViewModel.IsBusy);
         }
     }
 
@@ -629,7 +725,7 @@ public sealed partial class MainWindow : Window
             RouterMacBox.Text = TryResolveMacAddress(gateway) ?? RouterMacBox.Text;
 
             var message = string.IsNullOrWhiteSpace(RouterMacBox.Text)
-                ? "Adapter details were detected. Enter the router MAC address manually."
+                ? "Adapter details were detected. Save the profile so the broker can resolve the router MAC. If saving fails, check that Ethernet or Wi-Fi has a working default gateway, then retry."
                 : "Adapter and router details were detected.";
             ShowInfo(ConnectionInfoBar, InfoBarSeverity.Success, "Network detected", message);
             AddActivity($"Detected active adapter '{adapter.Adapter.Name}'.");
@@ -727,6 +823,7 @@ public sealed partial class MainWindow : Window
             validationCandidate = validationCandidate with { LanSocksPassword = "saved-by-broker" };
         }
         var errors = PaqetFireSettingsValidator.Validate(validationCandidate);
+        ShowFieldErrors(errors);
         error = string.Join(" ", errors);
         return errors.Count == 0;
     }
@@ -753,7 +850,16 @@ public sealed partial class MainWindow : Window
         RoutingModeButtons.SelectedIndex = source.RouteAllApplications ? 0 : 1;
         SelectedApplicationsBox.Text = source.SelectedApplications;
         UserExclusionsBox.Text = source.UserExclusions;
-        BypassLanSwitch.IsOn = source.BypassLan;
+        isUpdatingHotspotInterlock = true;
+        try
+        {
+            BypassLanSwitch.IsOn = source.BypassLan;
+            ShareViaHotspotSwitch.IsOn = source.ShareViaHotspot;
+        }
+        finally
+        {
+            isUpdatingHotspotInterlock = false;
+        }
         RegionalPresetBox.SelectedIndex = source.RegionalPreset == RegionalRoutingPreset.None ? 1 : 0;
         DomainStrategyBox.SelectedIndex = source.DomainStrategy switch
         {
@@ -766,7 +872,6 @@ public sealed partial class MainWindow : Window
         DirectBitTorrentSwitch.IsOn = source.DirectBitTorrent;
         KillSwitchToggle.IsOn = source.KillSwitch;
         ShareWithLanSwitch.IsOn = source.ShareWithLan;
-        ShareViaHotspotSwitch.IsOn = source.ShareViaHotspot;
         HotspotPortBox.Value = source.HotspotSocksPort;
         LanSharePortBox.Value = source.LanSocksPort;
         ShareUsernameBox.Text = source.LanSocksUsername;
@@ -840,7 +945,7 @@ public sealed partial class MainWindow : Window
         preferences.MinimizeToTray = CloseToTraySwitch.IsOn;
     }
 
-    private async Task<bool> TrySavePreferencesAsync()
+    private async Task<bool> TrySavePreferencesAsync(InfoBar feedback)
     {
         try
         {
@@ -850,7 +955,7 @@ public sealed partial class MainWindow : Window
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             AddActivity("Settings could not be written to disk.", "ERROR");
-            ShowInfo(ConnectionInfoBar, InfoBarSeverity.Error, "Could not save", exception.Message);
+            ShowInfo(feedback, InfoBarSeverity.Error, "Could not save", exception.Message);
             return false;
         }
     }
@@ -951,7 +1056,16 @@ public sealed partial class MainWindow : Window
             RoutingModeButtons.SelectedIndex = settings.RoutingMode == RoutingMode.SelectedApplications ? 1 : 0;
             SelectedApplicationsBox.Text = string.Join(Environment.NewLine, settings.SelectedApplications);
             UserExclusionsBox.Text = string.Join(Environment.NewLine, settings.UserExclusions);
-            BypassLanSwitch.IsOn = settings.BypassLan;
+            isUpdatingHotspotInterlock = true;
+            try
+            {
+                BypassLanSwitch.IsOn = settings.BypassLan;
+                ShareViaHotspotSwitch.IsOn = settings.ShareViaHotspot;
+            }
+            finally
+            {
+                isUpdatingHotspotInterlock = false;
+            }
             RouteTcpCheckBox.IsChecked = settings.RouteTcp;
             RouteUdpCheckBox.IsChecked = settings.RouteUdp;
             RouteIpv4CheckBox.IsChecked = settings.RouteIpv4;
@@ -1151,8 +1265,8 @@ public sealed partial class MainWindow : Window
         var address = LocalIpv4Box.Text.Trim();
         var port = double.IsNaN(LanSharePortBox.Value) ? 1082 : (int)LanSharePortBox.Value;
         LanShareEndpointText.Text = string.IsNullOrEmpty(address)
-            ? $"SOCKS5 endpoint: this computer's LAN IPv4 address:{port}"
-            : $"SOCKS5 endpoint: {address}:{port}";
+            ? $"Configured SOCKS5 endpoint: this computer's LAN IPv4 address:{port}"
+            : $"Configured SOCKS5 endpoint: {address}:{port}";
     }
 
     private void UpdateHotspotEndpointText()
@@ -1284,6 +1398,7 @@ public sealed partial class MainWindow : Window
             nameof(ConnectionViewModel.CanDisconnect) or
             nameof(ConnectionViewModel.IsBusy))
         {
+            SetSaveActionsEnabled(!configurationSaveInProgress && !ViewModel.IsBusy);
             UpdateTrayState();
             UpdateConnectionVisuals();
         }

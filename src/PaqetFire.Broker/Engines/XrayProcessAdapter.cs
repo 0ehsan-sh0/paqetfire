@@ -212,18 +212,54 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
     private async Task ValidateConfigurationAsync(CancellationToken cancellationToken)
     {
         using var validation = CreateProcess(testOnly: true);
+        await RunValidationAsync(validation, options.ValidationTimeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task RunValidationAsync(
+        Process validation,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
         if (!validation.Start())
         {
             throw new InvalidOperationException("Windows could not start Xray's configuration check.");
         }
 
-        var outputTask = validation.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errorTask = validation.StandardError.ReadToEndAsync(cancellationToken);
-        await validation.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        var output = (await outputTask.ConfigureAwait(false) + " " + await errorTask.ConfigureAwait(false)).Trim();
-        if (validation.ExitCode != 0)
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        var outputTask = validation.StandardOutput.ReadToEndAsync(deadline.Token);
+        var errorTask = validation.StandardError.ReadToEndAsync(deadline.Token);
+        try
         {
-            throw new InvalidDataException($"Xray rejected the generated regional policy: {output}");
+            await validation.WaitForExitAsync(deadline.Token).ConfigureAwait(false);
+            var output = (await outputTask.ConfigureAwait(false) + " " + await errorTask.ConfigureAwait(false)).Trim();
+            if (validation.ExitCode != 0)
+            {
+                throw new InvalidDataException($"Xray rejected the generated regional policy: {output}");
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Xray's configuration check exceeded its deadline.");
+        }
+        finally
+        {
+            if (!validation.HasExited)
+            {
+                validation.Kill(entireProcessTree: true);
+                using var cleanupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await validation.WaitForExitAsync(cleanupDeadline.Token).ConfigureAwait(false);
+            }
+
+            await deadline.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Both stream reads are observed after cancellation or timeout.
+            }
         }
     }
 

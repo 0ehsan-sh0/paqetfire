@@ -1,6 +1,9 @@
 name: Windows build
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -9,14 +12,34 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  validate:
+    name: Validate pull request
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore solution
+        run: dotnet restore PaqetFire.slnx -r win-x64
+      - name: Test core and Windows boundaries
+        run: dotnet test PaqetFire.slnx -c Release -r win-x64 --no-restore
+      - name: Build desktop and broker
+        run: dotnet build PaqetFire.slnx -c Release -r win-x64 --no-restore
+
   build:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
     name: Test and package x64 MSI
     runs-on: windows-latest
     timeout-minutes: 30
@@ -98,9 +121,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $installer = Get-ChildItem artifacts/installer/PaqetFire-*-x64.msi | Select-Object -First 1
+          $releaseNotes = "docs/releases/$env:GITHUB_REF_NAME.md"
+          $notesArguments = if (Test-Path -LiteralPath $releaseNotes) { @('--notes-file', $releaseNotes) } else { @('--generate-notes') }
           gh release create $env:GITHUB_REF_NAME `
             $installer.FullName `
             "$($installer.FullName).sha256" `
             --verify-tag `
-            --generate-notes `
+            @notesArguments `
             --title "PaqetFire $env:GITHUB_REF_NAME"

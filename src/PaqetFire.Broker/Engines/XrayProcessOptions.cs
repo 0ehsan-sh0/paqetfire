@@ -19,4 +19,6 @@ public sealed record XrayProcessOptions
     public IPEndPoint InboundEndpoint { get; init; } = new(IPAddress.Loopback, 1081);
 
     public TimeSpan ReadinessTimeout { get; init; } = TimeSpan.FromSeconds(15);
+
+    public TimeSpan ValidationTimeout { get; init; } = TimeSpan.FromSeconds(15);
 }
