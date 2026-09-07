@@ -311,7 +311,8 @@
                          PlaceholderText="steam.exe&#x0a;updater.exe" AcceptsReturn="True" MinHeight="92" />
                 <ToggleSwitch x:Name="BypassLanSwitch" Header="Local network devices"
                               OnContent="Direct access — bypass PaqetFire"
-                              OffContent="Route through PaqetFire" IsOn="True" />
+                              OffContent="Route through PaqetFire" IsOn="True"
+                              Toggled="BypassLanSwitch_Toggled" />
                 <TextBlock Text="Keep direct access on for printers, your router, NAS, and other devices on your home or office network."
                            FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
                 <ToggleSwitch x:Name="KillSwitchToggle" Header="Routing kill switch"

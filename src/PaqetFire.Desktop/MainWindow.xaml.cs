@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
     private bool exitRequested;
     private bool trayNoticeShown;
     private bool prerequisiteActionInProgress;
+    private bool isUpdatingHotspotInterlock;
 
     public ConnectionViewModel ViewModel { get; }
 
@@ -319,11 +320,48 @@ public sealed partial class MainWindow : Window
         UpdateLanShareEndpointText();
     }
 
-    private void ShareViaHotspotSwitch_Toggled(object sender, RoutedEventArgs e)
+    private async void ShareViaHotspotSwitch_Toggled(object sender, RoutedEventArgs e)
     {
-        if (HotspotOptions is null)
+        if (isUpdatingHotspotInterlock || HotspotOptions is null)
         {
             return;
+        }
+
+        if (ShareViaHotspotSwitch.IsOn && BypassLanSwitch is not null && !BypassLanSwitch.IsOn)
+        {
+            if (Content?.XamlRoot is not null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "Enable Direct Access for Local Network?",
+                    Content = "Hotspot sharing requires direct access for local network devices so connected phones and tablets can reach this computer without traffic being blocked or routed through PaqetFire.\n\nPaqetFire will enable direct access for local network devices and turn on hotspot sharing.",
+                    PrimaryButtonText = "Enable and continue",
+                    CloseButtonText = "Cancel",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = Content.XamlRoot,
+                };
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    isUpdatingHotspotInterlock = true;
+                    BypassLanSwitch.IsOn = true;
+                    isUpdatingHotspotInterlock = false;
+                }
+                else
+                {
+                    isUpdatingHotspotInterlock = true;
+                    ShareViaHotspotSwitch.IsOn = false;
+                    isUpdatingHotspotInterlock = false;
+                    return;
+                }
+            }
+            else
+            {
+                isUpdatingHotspotInterlock = true;
+                BypassLanSwitch.IsOn = true;
+                isUpdatingHotspotInterlock = false;
+            }
         }
 
         HotspotOptions.Visibility = ShareViaHotspotSwitch.IsOn
@@ -339,6 +377,66 @@ public sealed partial class MainWindow : Window
         {
             UpdateHotspotEndpointText();
             UpdateHotspotUri();
+        }
+    }
+
+    private async void BypassLanSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (isUpdatingHotspotInterlock || BypassLanSwitch is null)
+        {
+            return;
+        }
+
+        if (!BypassLanSwitch.IsOn && ShareViaHotspotSwitch is { IsOn: true })
+        {
+            if (Content?.XamlRoot is not null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "Disable Hotspot Sharing?",
+                    Content = "Disabling direct access for local network devices will break Hotspot sharing connectivity.\n\nProceeding will turn off Hotspot sharing.",
+                    PrimaryButtonText = "Turn off Hotspot",
+                    CloseButtonText = "Keep direct access",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = Content.XamlRoot,
+                };
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    isUpdatingHotspotInterlock = true;
+                    ShareViaHotspotSwitch.IsOn = false;
+                    isUpdatingHotspotInterlock = false;
+
+                    if (HotspotOptions is not null)
+                    {
+                        HotspotOptions.Visibility = Visibility.Collapsed;
+                    }
+                    UpdateSharedCredentialsVisibility();
+                    UpdateHotspotEndpointText();
+                    UpdateHotspotUri();
+                }
+                else
+                {
+                    isUpdatingHotspotInterlock = true;
+                    BypassLanSwitch.IsOn = true;
+                    isUpdatingHotspotInterlock = false;
+                }
+            }
+            else
+            {
+                isUpdatingHotspotInterlock = true;
+                ShareViaHotspotSwitch.IsOn = false;
+                isUpdatingHotspotInterlock = false;
+
+                if (HotspotOptions is not null)
+                {
+                    HotspotOptions.Visibility = Visibility.Collapsed;
+                }
+                UpdateSharedCredentialsVisibility();
+                UpdateHotspotEndpointText();
+                UpdateHotspotUri();
+            }
         }
     }
 
