@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Microsoft.UI.Dispatching;
 using PaqetFire.Core.Engines;
 using PaqetFire.Core.Ipc;
 using PaqetFire.Core.Configuration;
@@ -18,7 +17,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
     private static readonly TimeSpan LifecycleRequestTimeout = TimeSpan.FromMinutes(2);
 
     private readonly IBrokerClient brokerClient;
-    private readonly DispatcherQueue dispatcherQueue;
+    private readonly IUiDispatcher dispatcherQueue;
     private readonly SemaphoreSlim operationLock = new(1, 1);
 
     private BrokerConnectionState connectionState = BrokerConnectionState.Disconnected;
@@ -40,7 +39,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     public ConnectionViewModel(
         IBrokerClient brokerClient,
-        DispatcherQueue dispatcherQueue)
+        IUiDispatcher dispatcherQueue)
     {
         this.brokerClient = brokerClient ?? throw new ArgumentNullException(nameof(brokerClient));
         this.dispatcherQueue = dispatcherQueue ?? throw new ArgumentNullException(nameof(dispatcherQueue));
@@ -332,7 +331,10 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
             return false;
         }
 
-        await operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (!await operationLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
         try
         {
             await UpdateUiAsync(() =>

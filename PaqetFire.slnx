@@ -5,6 +5,7 @@
     <Project Path="src/PaqetFire.Desktop/PaqetFire.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj" />
     <Project Path="tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj" />
   </Folder>
 </Solution>

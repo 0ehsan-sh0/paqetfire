@@ -1,6 +1,4 @@
 using System.Security.Cryptography;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -82,23 +80,28 @@ public sealed class MachineSettingsStore(string settingsPath) : IMachineSettings
                 string.IsNullOrEmpty(settings.LanSocksPassword)
                     ? null
                     : Protect(settings.LanSocksPassword, LanPasswordEntropy));
-            var temporary = _settingsPath + ".new";
-            await using (var stream = new FileStream(
-                             temporary,
-                             FileMode.Create,
-                             FileAccess.Write,
-                             FileShare.None,
-                             16 * 1024,
-                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            var temporary = _settingsPath + $".{Guid.NewGuid():N}.new";
+            try
             {
-                await JsonSerializer.SerializeAsync(stream, stored, JsonOptions, cancellationToken)
-                    .ConfigureAwait(false);
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                stream.Flush(flushToDisk: true);
-            }
+                await using (var stream = ProtectedConfigurationFile.CreateNew(temporary))
+                {
+                    await JsonSerializer.SerializeAsync(stream, stored, JsonOptions, cancellationToken)
+                        .ConfigureAwait(false);
+                    await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    stream.Flush(flushToDisk: true);
+                }
 
-            File.Move(temporary, _settingsPath, overwrite: true);
-            HardenSettingsAcl(_settingsPath);
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(temporary, _settingsPath, overwrite: true);
+                ProtectedConfigurationFile.Harden(_settingsPath);
+            }
+            finally
+            {
+                if (File.Exists(temporary))
+                {
+                    File.Delete(temporary);
+                }
+            }
         }
         finally
         {
@@ -145,21 +148,6 @@ public sealed class MachineSettingsStore(string settingsPath) : IMachineSettings
         {
             CryptographicOperations.ZeroMemory(clear);
         }
-    }
-
-    private static void HardenSettingsAcl(string path)
-    {
-        var security = new FileSecurity();
-        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-        security.AddAccessRule(new FileSystemAccessRule(
-            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
-            FileSystemRights.FullControl,
-            AccessControlType.Allow));
-        security.AddAccessRule(new FileSystemAccessRule(
-            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
-            FileSystemRights.FullControl,
-            AccessControlType.Allow));
-        new FileInfo(path).SetAccessControl(security);
     }
 
     private sealed record StoredSettings(

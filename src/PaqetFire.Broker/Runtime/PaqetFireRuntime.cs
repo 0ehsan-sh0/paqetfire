@@ -30,10 +30,12 @@ public sealed class PaqetFireRuntime(
 {
     private const int RecentLogBudgetBytes = 24 * 1024;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SnapshotMetadataCache snapshotMetadata = new();
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken)
     {
         var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
+        await snapshotMetadata.UpdateSettingsAsync(settings).ConfigureAwait(false);
         if (settings?.KillSwitchEnabled != true ||
             !File.Exists(paths.ProxiFyreConfigurationPath))
         {
@@ -54,7 +56,8 @@ public sealed class PaqetFireRuntime(
     public async ValueTask<BrokerSnapshot> GetSnapshotAsync(
         CancellationToken cancellationToken)
     {
-        var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
+        var settings = await snapshotMetadata.GetSettingsAsync(TryLoadSettingsAsync, cancellationToken)
+            .ConfigureAwait(false);
         return await CreateSnapshotAsync(settings, cancellationToken).ConfigureAwait(false);
     }
 
@@ -99,51 +102,31 @@ public sealed class PaqetFireRuntime(
                 throw new InvalidOperationException(inspection.Detail);
             }
 
-            if (current.State != ConnectionState.Disconnected)
-            {
-                await connectionController.DisconnectAsync(cancellationToken).ConfigureAwait(false);
-            }
-
             var normalized = Normalize(settings);
-            var interfaceName = await WriteEngineConfigurationsAsync(normalized, cancellationToken)
-                .ConfigureAwait(false);
-            await settingsStore.SaveAsync(normalized, cancellationToken).ConfigureAwait(false);
-
-            if (normalized.KillSwitchEnabled)
-            {
-                await connectionController.GuardAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            string? operationWarning = null;
-            if (reconnect)
-            {
-                try
+            string? interfaceName = null;
+            var activationError = await ConfigurationActivation.ApplyAsync(
+                connectionController,
+                async () =>
                 {
-                    await connectionController.ConnectAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception exception) when (exception is not OperationCanceledException)
-                {
-                    operationWarning = $"The profile was saved, but the connection could not start. {exception.Message}";
-                    logger.LogWarning(exception, "The saved profile could not be connected.");
-                    if (normalized.KillSwitchEnabled)
-                    {
-                        try
-                        {
-                            await connectionController.GuardAsync(CancellationToken.None).ConfigureAwait(false);
-                        }
-                        catch (Exception guardException)
-                        {
-                            logger.LogError(guardException, "Fail-closed protection could not be restored after the connection failed.");
-                        }
-                    }
-                }
-            }
+                    interfaceName = await WriteEngineConfigurationsAsync(normalized, cancellationToken)
+                        .ConfigureAwait(false);
+                    await settingsStore.SaveAsync(normalized, cancellationToken).ConfigureAwait(false);
+                    await snapshotMetadata.UpdateSettingsAsync(normalized).ConfigureAwait(false);
+                },
+                current.State != ConnectionState.Disconnected,
+                normalized.KillSwitchEnabled,
+                reconnect,
+                cancellationToken).ConfigureAwait(false);
+            var operationWarning = activationError is null ? null
+                : $"The profile was saved, but the route could not be activated. {activationError.Message}";
+            if (activationError is not null)
+                logger.LogWarning(activationError, "The saved profile could not be activated.");
 
             logger.LogInformation(
                 "Applied PaqetFire profile {ProfileName} on adapter {InterfaceName}.",
                 normalized.ProfileName,
                 interfaceName);
-            var snapshot = await CreateSnapshotAsync(normalized, cancellationToken).ConfigureAwait(false);
+            var snapshot = await CreateSnapshotAsync(PaqetFireSettingsView.FromSettings(normalized), cancellationToken).ConfigureAwait(false);
             return snapshot with { OperationWarning = operationWarning };
         }
         finally
@@ -195,7 +178,8 @@ public sealed class PaqetFireRuntime(
 
                 throw;
             }
-            return await CreateSnapshotAsync(settings, cancellationToken).ConfigureAwait(false);
+            await snapshotMetadata.UpdateSettingsAsync(settings).ConfigureAwait(false);
+            return await CreateSnapshotAsync(PaqetFireSettingsView.FromSettings(settings), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -208,7 +192,8 @@ public sealed class PaqetFireRuntime(
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
+            var settings = await snapshotMetadata.GetSettingsAsync(TryLoadSettingsAsync, cancellationToken)
+                .ConfigureAwait(false);
             if (settings?.KillSwitchEnabled == true)
             {
                 await connectionController.GuardAsync(cancellationToken).ConfigureAwait(false);
@@ -290,12 +275,12 @@ public sealed class PaqetFireRuntime(
     }
 
     private async ValueTask<BrokerSnapshot> CreateSnapshotAsync(
-        PaqetFireSettings? settings,
+        PaqetFireSettingsView? settings,
         CancellationToken cancellationToken)
     {
         var status = await connectionController.GetStatusAsync(cancellationToken)
             .ConfigureAwait(false);
-        var prerequisites = prerequisiteInspector.Inspect();
+        var prerequisites = snapshotMetadata.GetPrerequisites(prerequisiteInspector.Inspect);
         var missing = prerequisites.Where(item => !item.IsInstalled).Select(item => item.DisplayName).ToArray();
         var message = missing.Length > 0
             ? $"Install the missing prerequisite{(missing.Length == 1 ? string.Empty : "s")}: {string.Join(", ", missing)}."
@@ -327,7 +312,7 @@ public sealed class PaqetFireRuntime(
                                  status.ProxiFyre.State == EngineState.Running,
             status.ObservedAt ?? DateTimeOffset.UtcNow,
             IsConfigured: settings is not null,
-            Settings: settings is null ? CreateDefaultView() : PaqetFireSettingsView.FromSettings(settings),
+            Settings: settings ?? CreateDefaultView(),
             Prerequisites: prerequisites,
             RecentLogs: logs,
             StatusMessage: message,
@@ -375,7 +360,8 @@ public sealed class PaqetFireRuntime(
 
     private void EnsurePrerequisitesAvailable()
     {
-        var missing = prerequisiteInspector.Inspect().Where(item => !item.IsInstalled).ToArray();
+        var missing = snapshotMetadata.GetPrerequisites(prerequisiteInspector.Inspect, forceRefresh: true)
+            .Where(item => !item.IsInstalled).ToArray();
         if (missing.Length > 0)
         {
             throw new MissingPrerequisiteException(missing);

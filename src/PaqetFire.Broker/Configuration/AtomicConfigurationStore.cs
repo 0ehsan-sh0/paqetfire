@@ -1,6 +1,4 @@
 using System.Text;
-using System.Security.AccessControl;
-using System.Security.Principal;
 
 namespace PaqetFire.Broker.Configuration;
 
@@ -43,9 +41,14 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
         {
             var destination = ValidateContainedDestination(destinationPath);
             _brokerOwnedDestinations.Add(destination);
+            var backup = ValidateSidecarPath(destination + ".bak");
+            if (File.Exists(backup))
+            {
+                ProtectedConfigurationFile.Harden(backup);
+            }
             if (File.Exists(destination))
             {
-                HardenConfigurationAcl(destination);
+                ProtectedConfigurationFile.Harden(destination);
             }
         }
 
@@ -98,6 +101,7 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
             }
 
             EnsureExistingPathIsNotReparsePoint(backup);
+            ProtectedConfigurationFile.Harden(backup);
             await CommitFileCopyAsync(backup, destination, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -116,7 +120,7 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
         try
         {
             var bytes = Utf8WithoutBom.GetBytes(validatedText);
-            await using (var stream = OpenNewTemporaryFile(temporary))
+            await using (var stream = ProtectedConfigurationFile.CreateNew(temporary))
             {
                 await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -148,7 +152,7 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
                              FileShare.Read,
                              bufferSize: 64 * 1024,
                              FileOptions.Asynchronous | FileOptions.SequentialScan))
-            await using (var output = OpenNewTemporaryFile(temporary))
+            await using (var output = ProtectedConfigurationFile.CreateNew(temporary))
             {
                 await input.CopyToAsync(output, 64 * 1024, cancellationToken).ConfigureAwait(false);
                 await output.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -165,14 +169,6 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
         }
     }
 
-    private static FileStream OpenNewTemporaryFile(string path) => new(
-        path,
-        FileMode.CreateNew,
-        FileAccess.Write,
-        FileShare.None,
-        bufferSize: 64 * 1024,
-        FileOptions.Asynchronous | FileOptions.WriteThrough);
-
     private void CommitTemporaryFile(
         string temporary,
         string destination,
@@ -180,11 +176,12 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
     {
         ValidateDestination(destination);
         EnsureExistingPathIsNotReparsePoint(temporary);
-        HardenConfigurationAcl(temporary);
+        ProtectedConfigurationFile.Harden(temporary);
 
         if (File.Exists(destination))
         {
             EnsureExistingPathIsNotReparsePoint(destination);
+            ProtectedConfigurationFile.Harden(destination);
             if (backupPath is not null)
             {
                 ValidateSidecarPath(backupPath);
@@ -197,22 +194,7 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
             File.Move(temporary, destination);
         }
 
-        HardenConfigurationAcl(destination);
-    }
-
-    private static void HardenConfigurationAcl(string path)
-    {
-        var security = new FileSecurity();
-        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-        security.AddAccessRule(new FileSystemAccessRule(
-            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
-            FileSystemRights.FullControl,
-            AccessControlType.Allow));
-        security.AddAccessRule(new FileSystemAccessRule(
-            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
-            FileSystemRights.FullControl,
-            AccessControlType.Allow));
-        new FileInfo(path).SetAccessControl(security);
+        ProtectedConfigurationFile.Harden(destination);
     }
 
     private string ValidateDestination(string destinationPath)

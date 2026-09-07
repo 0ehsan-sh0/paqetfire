@@ -4,6 +4,7 @@ using PaqetFire.Broker.Runtime;
 using PaqetFire.Core.Connections;
 using PaqetFire.Core.Engines;
 using PaqetFire.Core.Ipc;
+using System.Threading.Channels;
 
 namespace PaqetFire.Broker;
 
@@ -13,6 +14,14 @@ public sealed class BrokerWorker(
     IPaqetFireRuntime runtime,
     NamedPipeBrokerServer pipeServer) : BackgroundService
 {
+    private readonly Channel<BrokerEvent> publications = Channel.CreateBounded<BrokerEvent>(
+        new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = true,
+        });
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var payload = await payloadInspector.InspectAsync(stoppingToken);
@@ -32,15 +41,16 @@ public sealed class BrokerWorker(
 
         var pipeTask = pipeServer.RunAsync(stoppingToken);
         var monitorTask = MonitorAsync(stoppingToken);
-        await Task.WhenAll(pipeTask, monitorTask);
+        var publicationTask = PublishEventsAsync(stoppingToken);
+        await Task.WhenAll(pipeTask, monitorTask, publicationTask);
 
         logger.LogInformation("PaqetFire Broker stopped.");
     }
 
-    private async Task MonitorAsync(CancellationToken stoppingToken)
+    internal async Task MonitorAsync(CancellationToken stoppingToken, TimeSpan? interval = null)
     {
         BrokerSnapshot? previousSnapshot = null;
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        using var timer = new PeriodicTimer(interval ?? TimeSpan.FromSeconds(3));
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -69,15 +79,13 @@ public sealed class BrokerWorker(
 
                 previousSnapshot = snapshot;
 
-                await pipeServer.PublishAsync(
+                publications.Writer.TryWrite(
                         new BrokerEvent(
                             Guid.NewGuid(),
                             IpcProtocol.Version,
                             BrokerEventKind.SnapshotChanged,
                             DateTimeOffset.UtcNow,
-                            snapshot),
-                        stoppingToken)
-                    .ConfigureAwait(false);
+                            snapshot));
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -87,7 +95,7 @@ public sealed class BrokerWorker(
             {
                 logger.LogError(exception, "The connection health monitor failed.");
                 previousSnapshot = null;
-                await pipeServer.PublishAsync(
+                publications.Writer.TryWrite(
                         new BrokerEvent(
                             Guid.NewGuid(),
                             IpcProtocol.Version,
@@ -95,10 +103,30 @@ public sealed class BrokerWorker(
                             DateTimeOffset.UtcNow,
                             Error: new BrokerError(
                                 BrokerErrorCode.InternalError,
-                                "The connection health check failed.")),
-                        stoppingToken)
-                    .ConfigureAwait(false);
+                                "The connection health check failed.")));
             }
+        }
+    }
+
+    private async Task PublishEventsAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await foreach (var publication in publications.Reader.ReadAllAsync(stoppingToken))
+            {
+                try
+                {
+                    await pipeServer.PublishAsync(publication, stoppingToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    logger.LogWarning(exception, "The broker snapshot could not be published.");
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Normal service shutdown.
         }
     }
 

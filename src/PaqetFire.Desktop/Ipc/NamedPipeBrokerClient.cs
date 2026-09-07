@@ -10,6 +10,15 @@ namespace PaqetFire.Desktop.Ipc;
 
 public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
 {
+    private readonly string pipeName;
+
+    public NamedPipeBrokerClient() : this(IpcProtocol.PipeName) { }
+
+    internal NamedPipeBrokerClient(string pipeName)
+    {
+        this.pipeName = pipeName;
+    }
+
     private static readonly JsonSerializerOptions SerializerOptions = CreateSerializerOptions();
 
     private readonly ConcurrentDictionary<Guid, TaskCompletionSource<BrokerResponse>> pendingRequests = new();
@@ -41,7 +50,7 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
 
             var candidate = new NamedPipeClientStream(
                 ".",
-                IpcProtocol.PipeName,
+                pipeName,
                 PipeDirection.InOut,
                 PipeOptions.Asynchronous | PipeOptions.WriteThrough);
             using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -148,9 +157,23 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
 
         try
         {
-            await WriteRequestAsync(currentPipe, request, cancellationToken).ConfigureAwait(false);
-            var response = await completion.Task.WaitAsync(timeout, cancellationToken)
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(timeout);
+            BrokerResponse response;
+            try
+            {
+                await WriteRequestAsync(currentPipe, request, deadline.Token).ConfigureAwait(false);
+                response = await completion.Task.WaitAsync(deadline.Token)
                 .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation may interrupt a frame after its prefix was sent.
+                // Never send another request on that potentially truncated stream.
+                await ResetIfCurrentAsync(currentPipe).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new TimeoutException("The broker request exceeded its deadline.");
+            }
 
             if (!response.Success)
             {
@@ -166,6 +189,22 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
         finally
         {
             pendingRequests.TryRemove(request.RequestId, out _);
+        }
+    }
+
+    private async Task ResetIfCurrentAsync(NamedPipeClientStream expectedPipe)
+    {
+        await lifecycleLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (ReferenceEquals(pipe, expectedPipe))
+            {
+                await ResetConnectionAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            lifecycleLock.Release();
         }
     }
 

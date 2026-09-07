@@ -317,9 +317,11 @@ public sealed class NamedPipeBrokerServer(
         AccessControlType accessControlType) =>
         new(new SecurityIdentifier(sidType, domainSid: null), rights, accessControlType);
 
-    private sealed class ClientConnection(NamedPipeServerStream pipe) : IAsyncDisposable
+    internal sealed class ClientConnection(NamedPipeServerStream pipe, TimeSpan? writeTimeout = null) : IAsyncDisposable
     {
         private readonly SemaphoreSlim writeLock = new(1, 1);
+        private int disposed;
+        private readonly TimeSpan writeTimeout = writeTimeout ?? TimeSpan.FromSeconds(5);
 
         public NamedPipeServerStream Pipe { get; } = pipe;
 
@@ -343,16 +345,30 @@ public sealed class NamedPipeBrokerServer(
             var lengthBuffer = new byte[sizeof(int)];
             BinaryPrimitives.WriteInt32LittleEndian(lengthBuffer, payload.Length);
 
-            await writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(writeTimeout);
+            var acquired = false;
             try
             {
-                await Pipe.WriteAsync(lengthBuffer, cancellationToken).ConfigureAwait(false);
-                await Pipe.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
-                await Pipe.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await writeLock.WaitAsync(deadline.Token).ConfigureAwait(false);
+                acquired = true;
+                await Pipe.WriteAsync(lengthBuffer, deadline.Token).ConfigureAwait(false);
+                await Pipe.WriteAsync(payload, deadline.Token).ConfigureAwait(false);
+                await Pipe.FlushAsync(deadline.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // A partially written frame cannot be reused. Closing also releases the
+                // request reader, allowing the listener to accept another desktop.
+                await DisposeAsync().ConfigureAwait(false);
+                throw new IOException("The IPC client did not read a response within the write deadline.");
             }
             finally
             {
-                writeLock.Release();
+                if (acquired)
+                {
+                    writeLock.Release();
+                }
             }
         }
 
@@ -383,8 +399,11 @@ public sealed class NamedPipeBrokerServer(
 
         public async ValueTask DisposeAsync()
         {
-            await Pipe.DisposeAsync().ConfigureAwait(false);
-            writeLock.Dispose();
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                await Pipe.DisposeAsync().ConfigureAwait(false);
+            }
+            // Writers may still be unwinding and releasing the managed semaphore.
         }
     }
 }

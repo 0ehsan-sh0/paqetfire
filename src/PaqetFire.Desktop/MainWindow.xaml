@@ -17,7 +17,7 @@
         <Border x:Name="VersionBadge" Height="22" MinWidth="44" Padding="8,0"
                 CornerRadius="7" VerticalAlignment="Center"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-          <TextBlock Text="v0.6.12" FontSize="10" FontWeight="SemiBold" Opacity="0.78"
+          <TextBlock Text="v0.6.13" FontSize="10" FontWeight="SemiBold" Opacity="0.78"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
       </StackPanel>
@@ -172,12 +172,14 @@
             </StackPanel>
 
             <InfoBar x:Name="ConnectionInfoBar" IsOpen="False" IsClosable="True" />
+            <TextBlock x:Name="ConnectionPendingText" Text="No pending changes." TextWrapping="Wrap" />
+            <TextBlock Text="Either Save button applies the connection profile and routing policy together, including edits on the other page. Applying changes restarts an active connection." FontSize="12" Opacity="0.72" TextWrapping="Wrap" />
 
             <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
               <StackPanel Spacing="16">
                 <TextBlock Text="Server" FontSize="18" FontWeight="SemiBold" />
                 <TextBox x:Name="ProfileNameBox" Header="Profile name" PlaceholderText="My Paqet route" />
-                <Grid ColumnSpacing="14">
+                <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <TextBox x:Name="ServerEndpointBox" Header="Server endpoint" PlaceholderText="vpn.example.com:9999" />
                   <PasswordBox x:Name="TransportKeyBox" Grid.Column="1" Header="Transport key"
@@ -193,13 +195,13 @@
                <StackPanel Spacing="16">
                 <TextBlock Text="PaqetFire detects these values from the active default route when the profile is saved. You can preview the detected adapter here."
                            FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
-                <Grid ColumnSpacing="14">
+                <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <TextBox x:Name="SocksEndpointBox" Header="Local SOCKS5 endpoint" Text="127.0.0.1:1080" IsReadOnly="True" />
                   <TextBox x:Name="InterfaceNameBox" Grid.Column="1" Header="Detected adapter" PlaceholderText="Click Detect adapter details" IsReadOnly="True" />
                 </Grid>
                 <TextBox x:Name="InterfaceGuidBox" Header="Adapter GUID" PlaceholderText="Detected automatically" IsReadOnly="True" />
-                <Grid ColumnSpacing="14">
+                <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <TextBox x:Name="LocalIpv4Box" Header="Local IPv4 address" PlaceholderText="Detected automatically" IsReadOnly="True" />
                   <TextBox x:Name="RouterMacBox" Grid.Column="1" Header="Router MAC address" PlaceholderText="Resolved when the broker saves" IsReadOnly="True" />
@@ -209,10 +211,10 @@
               </Border>
             </Expander>
 
-            <Expander Header="Advanced transport settings" IsExpanded="False">
+            <Expander x:Name="AdvancedTransportExpander" Header="Advanced transport settings" IsExpanded="False">
               <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                <StackPanel Spacing="16">
-                <Grid ColumnSpacing="14">
+                <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <ComboBox x:Name="KcpModeBox" Header="KCP mode" SelectedIndex="1" HorizontalAlignment="Stretch">
                     <ComboBoxItem Content="normal"/><ComboBoxItem Content="fast"/><ComboBoxItem Content="fast2"/><ComboBoxItem Content="fast3"/>
@@ -226,7 +228,7 @@
               </Border>
             </Expander>
 
-            <StackPanel Orientation="Horizontal" Spacing="10">
+            <StackPanel x:Name="ConnectionSaveActions" Orientation="Horizontal" Spacing="10">
               <Button Content="Save profile" Style="{StaticResource AccentButtonStyle}" Click="SaveProfileButton_Click" />
               <Button Content="Save and connect" IsEnabled="{x:Bind ViewModel.CanSaveAndConnect, Mode=OneWay}"
                       Click="SaveAndConnectButton_Click" AccessKey="C" />
@@ -245,6 +247,8 @@
             </StackPanel>
 
             <InfoBar x:Name="RoutingInfoBar" IsOpen="False" IsClosable="True" />
+            <TextBlock x:Name="RoutingPendingText" Text="No pending changes." TextWrapping="Wrap" />
+            <TextBlock Text="Either Save button applies the connection profile and routing policy together, including edits on the other page. Applying changes restarts an active connection." FontSize="12" Opacity="0.72" TextWrapping="Wrap" />
 
             <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
               <StackPanel Spacing="16">
@@ -273,7 +277,7 @@
                 </ComboBox>
                 <TextBlock Text="The Iran preset uses Xray GeoSite and GeoIP rules. Iranian domains and addresses connect directly; everything else follows your application routing mode."
                            FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
-                <Grid ColumnSpacing="14">
+                <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <ToggleSwitch x:Name="BlockAdsSwitch" Header="Block advertising domains" IsOn="True"
                                 OnContent="On by default · category-ads-all blocked" OffContent="Off" />
@@ -330,7 +334,7 @@
                 <TextBlock Text="Creates a separate password-protected SOCKS5 listener on this computer's active LAN IPv4 address. The installer limits incoming connections to the local subnet."
                            FontSize="12" Opacity="0.68" TextWrapping="Wrap" />
                 <StackPanel x:Name="LanShareOptions" Spacing="12" Visibility="Collapsed">
-                  <Grid ColumnSpacing="12">
+                  <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="*" />
                       <ColumnDefinition Width="180" />
@@ -357,7 +361,7 @@
                 <TextBlock Text="Protocols" FontSize="18" FontWeight="SemiBold" />
                 <TextBlock Text="Choose at least one protocol and address family for applications routed through ProxiFyre. LAN SOCKS5 clients use Xray's routing rules independently."
                            Opacity="0.65" TextWrapping="Wrap" />
-                <Grid ColumnSpacing="14">
+                <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <CheckBox x:Name="RouteTcpCheckBox" Content="TCP" IsChecked="True" />
                   <CheckBox x:Name="RouteUdpCheckBox" Grid.Column="1" Content="UDP" IsChecked="True" />
@@ -367,7 +371,7 @@
               </StackPanel>
             </Border>
 
-            <StackPanel Orientation="Horizontal" Spacing="10">
+            <StackPanel x:Name="RoutingSaveActions" Orientation="Horizontal" Spacing="10">
               <Button Content="Save routing policy" Style="{StaticResource AccentButtonStyle}" Click="SaveRoutingButton_Click" />
               <Button Content="Save and connect" IsEnabled="{x:Bind ViewModel.CanSaveAndConnect, Mode=OneWay}"
                       Click="SaveRoutingAndConnectButton_Click" AccessKey="C" />
@@ -530,7 +534,7 @@
             <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
               <StackPanel Spacing="12">
                 <TextBlock Text="About" FontSize="18" FontWeight="SemiBold" />
-                <TextBlock Text="PaqetFire 0.6.12" FontWeight="SemiBold" />
+                <TextBlock Text="PaqetFire 0.6.13" FontWeight="SemiBold" />
                 <TextBlock Text="A single Windows control surface for Paqet, Xray, and ProxiFyre. Core engines and their licenses are included with the installer."
                            Opacity="0.68" TextWrapping="Wrap" />
                 <TextBlock Text="Routing always excludes Paqet, Xray, ProxiFyre, the broker, and packet-capture services to avoid a proxy loop."
