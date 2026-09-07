@@ -205,8 +205,8 @@ public sealed class ConfigurationTests
         Assert.Equal(2082, shared.GetProperty("port").GetInt32());
         var settings = shared.GetProperty("settings");
         Assert.Equal("password", settings.GetProperty("auth").GetString());
-        Assert.Equal("family", settings.GetProperty("users")[0].GetProperty("user").GetString());
-        Assert.Equal("correct-horse", settings.GetProperty("users")[0].GetProperty("pass").GetString());
+        Assert.Equal("family", settings.GetProperty("accounts")[0].GetProperty("user").GetString());
+        Assert.Equal("correct-horse", settings.GetProperty("accounts")[0].GetProperty("pass").GetString());
         Assert.True(settings.GetProperty("udp").GetBoolean());
         Assert.Equal("192.168.50.12", settings.GetProperty("ip").GetString());
     }

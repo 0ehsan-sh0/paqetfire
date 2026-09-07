@@ -1000,8 +1000,8 @@ public sealed partial class MainWindow : Window
         var address = LocalIpv4Box.Text.Trim();
         var port = double.IsNaN(LanSharePortBox.Value) ? 1082 : (int)LanSharePortBox.Value;
         LanShareEndpointText.Text = string.IsNullOrEmpty(address)
-            ? $"SOCKS5 endpoint: this computer's LAN IPv4 address:{port}"
-            : $"SOCKS5 endpoint: {address}:{port}";
+            ? $"Configured SOCKS5 endpoint: this computer's LAN IPv4 address:{port}"
+            : $"Configured SOCKS5 endpoint: {address}:{port}";
     }
 
     private void InitializeTrayIcon(string iconPath)
