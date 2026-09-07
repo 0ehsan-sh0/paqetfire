@@ -252,10 +252,16 @@ public sealed class AtomicConfigurationStore : IAtomicConfigurationStore
         }
 
         var parent = Path.GetDirectoryName(destination);
-        if (string.IsNullOrEmpty(parent) || !Directory.Exists(parent))
+        if (string.IsNullOrEmpty(parent))
         {
-            throw new DirectoryNotFoundException(
-                $"The broker-owned configuration directory does not exist: '{parent}'.");
+            throw new ArgumentException(
+                "A broker-owned configuration destination must have a parent directory.",
+                nameof(destinationPath));
+        }
+
+        if (!Directory.Exists(parent))
+        {
+            Directory.CreateDirectory(parent);
         }
 
         EnsureContainedPathHasNoReparsePoints(destination);

@@ -352,7 +352,7 @@ public sealed class PaqetFireRuntime(
             return await settingsStore.LoadAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (
-            exception is IOException or InvalidDataException or CryptographicException or FormatException)
+            exception is IOException or InvalidDataException or CryptographicException or FormatException or UnauthorizedAccessException)
         {
             logger.LogError(exception, "The saved PaqetFire settings could not be loaded.");
             return null;

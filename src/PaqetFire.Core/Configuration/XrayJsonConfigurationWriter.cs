@@ -70,7 +70,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteString("protocol", "socks");
                 writer.WriteStartObject("settings");
                 writer.WriteString("auth", "password");
-                writer.WriteStartArray("users");
+                writer.WriteStartArray("accounts");
                 writer.WriteStartObject();
                 writer.WriteString("user", lanShare.Username);
                 writer.WriteString("pass", lanShare.Password);
@@ -101,7 +101,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteString("protocol", "socks");
                 writer.WriteStartObject("settings");
                 writer.WriteString("auth", "password");
-                writer.WriteStartArray("users");
+                writer.WriteStartArray("accounts");
                 writer.WriteStartObject();
                 writer.WriteString("user", hotspotShare.Username);
                 writer.WriteString("pass", hotspotShare.Password);
