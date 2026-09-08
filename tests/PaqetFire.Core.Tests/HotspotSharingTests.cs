@@ -16,6 +16,45 @@ namespace PaqetFire.Core.Tests;
 public sealed class HotspotSharingTests
 {
     [Fact]
+    public void HotspotSharingRequiresLocalNetworkBypass()
+    {
+        var settings = new PaqetFireSettings
+        {
+            ServerEndpoint = "example.com:8443",
+            TransportKey = "secret",
+            ShareViaHotspot = true,
+            BypassLan = false,
+            LanSocksPassword = "password123",
+        };
+        Assert.Contains(PaqetFireSettingsValidator.Validate(settings),
+            error => error.Contains("requires direct access", StringComparison.Ordinal));
+        Assert.Empty(PaqetFireSettingsValidator.Validate(settings with { BypassLan = true }));
+    }
+
+    [Theory]
+    [InlineData(System.Net.NetworkInformation.OperationalStatus.Down, "Microsoft Wi-Fi Direct Virtual Adapter")]
+    [InlineData(System.Net.NetworkInformation.OperationalStatus.Up, "Intel Ethernet Controller")]
+    [InlineData(System.Net.NetworkInformation.OperationalStatus.Up, "Hyper-V Virtual Ethernet Adapter")]
+    public void DetectionRejectsInactiveOrUnrelatedAdapters(
+        System.Net.NetworkInformation.OperationalStatus status, string description)
+    {
+        Assert.Null(new HotspotNetworkDetector().TryDetect([new RejectedAdapter(status, description)]));
+    }
+
+    private sealed class RejectedAdapter(
+        System.Net.NetworkInformation.OperationalStatus status,
+        string description) : System.Net.NetworkInformation.NetworkInterface
+    {
+        public override System.Net.NetworkInformation.OperationalStatus OperationalStatus => status;
+        public override System.Net.NetworkInformation.NetworkInterfaceType NetworkInterfaceType =>
+            System.Net.NetworkInformation.NetworkInterfaceType.Ethernet;
+        public override string Description => description;
+        public override string Name => "Local Area Connection";
+        public override System.Net.NetworkInformation.IPInterfaceProperties GetIPProperties() =>
+            throw new InvalidOperationException("Rejected adapters must not be inspected for hotspot addresses.");
+    }
+
+    [Fact]
     public void HotspotShare_EmitsSecondInboundOnHotspotAddress()
     {
         var json = new XrayJsonConfigurationWriter().Write(new XrayRoutingPolicy(
@@ -76,6 +115,7 @@ public sealed class HotspotSharingTests
             TransportKey = "secret",
             ShareWithLan = false,
             ShareViaHotspot = true,
+            BypassLan = true,
             HotspotSocksPort = 10808,
             LanSocksUsername = "paqetfire",
             LanSocksPassword = "correct-horse-battery",

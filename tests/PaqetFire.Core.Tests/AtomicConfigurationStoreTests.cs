@@ -6,6 +6,25 @@ namespace PaqetFire.Core.Tests;
 public sealed class AtomicConfigurationStoreTests
 {
     [Fact]
+    public async Task RejectedDestinationDoesNotCreateDirectories()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "PFTest-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var store = new AtomicConfigurationStore(root, [Path.Combine(root, "config.yaml")]);
+            var unregisteredDirectory = Path.Combine(root, "unregistered");
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                store.WriteAsync(Path.Combine(unregisteredDirectory, "config.yaml"), "rejected"));
+            Assert.False(Directory.Exists(unregisteredDirectory));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Constructor_CreatesDestinationParentDirectory_WhenItDoesNotExist()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "PFTest-" + Guid.NewGuid().ToString("N"));

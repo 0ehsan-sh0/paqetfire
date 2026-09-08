@@ -10,6 +10,10 @@ specific IPv4 address (usually `192.168.137.1`). It does not listen on
 to Windows Firewall's `localSubnet` scope — this already covers the hotspot
 subnet `192.168.137.0/24`, so no new firewall rule is needed.
 
+Detection requires an active Windows Wi-Fi Direct or Hosted Network adapter
+without an IPv4 gateway, using the default `192.168.137.*` or `192.168.173.*`
+subnet. Custom hotspot subnets are not currently supported.
+
 When sharing is enabled, another device uses:
 
 - server: the IPv4 address displayed by PaqetFire (usually `192.168.137.1`);
@@ -49,6 +53,11 @@ are restricted to SYSTEM and Administrators with protected Windows ACLs.
    field will populate (usually `192.168.137.1`).
 5. The **SOCKS endpoint** text will update to show `socks5://user:pass@192.168.137.1:10808`.
 6. Click **Copy** to copy the SOCKS URI to the clipboard.
+
+After saving or reopening a profile, re-enter the existing proxy password on the
+Routing page to enable password and URI copying. The desktop cannot retrieve the
+saved secret from the broker. If you enter a different password, save the profile
+before using it on your clients.
 
 ## Phone setup (SOCKS app required)
 

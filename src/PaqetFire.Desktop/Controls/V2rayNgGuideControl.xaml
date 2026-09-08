@@ -112,7 +112,7 @@
             </Grid.ColumnDefinitions>
             <TextBox x:Name="SocksUriBox" IsReadOnly="True" FontSize="12"
                      PlaceholderText="socks5://paqetfire:password@192.168.137.1:10808" />
-            <Button Grid.Column="1" Content="Copy SOCKS URI" Click="CopySocksUriButton_Click"
+            <Button x:Name="CopyUriButton" Grid.Column="1" Content="Copy SOCKS URI" Click="CopySocksUriButton_Click"
                     Style="{StaticResource AccentButtonStyle}" />
           </Grid>
         </StackPanel>
@@ -189,7 +189,7 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="PasswordBox" IsReadOnly="True" PlaceholderText="Password" />
-                <Button Grid.Column="1" Content="Copy" Click="CopyPasswordButton_Click" />
+                <Button x:Name="CopyPasswordButton" Grid.Column="1" Content="Copy" Click="CopyPasswordButton_Click" />
               </Grid>
             </StackPanel>
           </Grid>

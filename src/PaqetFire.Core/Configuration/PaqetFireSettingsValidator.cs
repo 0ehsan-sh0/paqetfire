@@ -92,6 +92,10 @@ public static class PaqetFireSettingsValidator
 
         if (settings.ShareViaHotspot)
         {
+            if (!settings.BypassLan)
+            {
+                errors.Add("Hotspot sharing requires direct access for local network devices.");
+            }
             if (settings.HotspotSocksPort is < 1024 or > 65535 ||
                 settings.HotspotSocksPort is XrayJsonConfigurationWriter.PaqetPort or XrayJsonConfigurationWriter.InboundPort)
                 errors.Add("The hotspot SOCKS port must be between 1024 and 65535 and cannot be 1080 or 1081.");

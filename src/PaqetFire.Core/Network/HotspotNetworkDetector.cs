@@ -15,29 +15,37 @@ public class HotspotNetworkDetector
     {
         foreach (var nic in interfaces)
         {
-            if (nic.NetworkInterfaceType is System.Net.NetworkInformation.NetworkInterfaceType.Loopback or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel)
+            if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up ||
+                nic.NetworkInterfaceType is System.Net.NetworkInformation.NetworkInterfaceType.Loopback or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel)
+            {
+                continue;
+            }
+
+            // A subnet alone does not identify a hotspot: ordinary LANs can use
+            // the same range. Require a Windows Wi-Fi Direct/Hosted adapter.
+            var description = nic.Description ?? string.Empty;
+            if (!description.Contains("Wi-Fi Direct", StringComparison.OrdinalIgnoreCase) &&
+                !description.Contains("Hosted Network", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
             var props = nic.GetIPProperties();
+            if (props.GatewayAddresses.Any(g =>
+                    g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                    !g.Address.Equals(System.Net.IPAddress.Any)))
+            {
+                continue;
+            }
             var ipv4 = props.UnicastAddresses.Select(u => u.Address)
-                .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a));
+                .FirstOrDefault(IsHotspotAddress);
 
             if (ipv4 is null || !IsHotspotAddress(ipv4))
             {
                 continue;
             }
 
-            var desc = (nic.Description ?? string.Empty) + " " + nic.Name;
-            if (desc.Contains("Direct", StringComparison.OrdinalIgnoreCase) ||
-                desc.Contains("Virtual", StringComparison.OrdinalIgnoreCase) ||
-                desc.Contains("Hotspot", StringComparison.OrdinalIgnoreCase) ||
-                desc.Contains("Hosted", StringComparison.OrdinalIgnoreCase) ||
-                IsHotspotAddress(ipv4))
-            {
-                return (ipv4.ToString(), nic.Name);
-            }
+            return (ipv4.ToString(), nic.Name);
         }
 
         return null;

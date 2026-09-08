@@ -281,7 +281,7 @@ public sealed partial class MainWindow : Window
             : "paqetfire";
         var password = SharePasswordBox is not null && !string.IsNullOrEmpty(SharePasswordBox.Password)
             ? SharePasswordBox.Password
-            : (hasSavedLanSocksPassword ? "saved-password" : "password");
+            : string.Empty;
         var uri = HotspotUriBox?.Text.Trim() ?? string.Empty;
 
         V2rayNgGuideView?.UpdateEndpoint(address, port, username, password, uri);
@@ -873,6 +873,7 @@ public sealed partial class MainWindow : Window
         KillSwitchToggle.IsOn = source.KillSwitch;
         ShareWithLanSwitch.IsOn = source.ShareWithLan;
         HotspotPortBox.Value = source.HotspotSocksPort;
+        HotspotOptions.Visibility = source.ShareViaHotspot ? Visibility.Visible : Visibility.Collapsed;
         LanSharePortBox.Value = source.LanSocksPort;
         ShareUsernameBox.Text = source.LanSocksUsername;
         UpdateSharedCredentialsVisibility();
@@ -1291,7 +1292,7 @@ public sealed partial class MainWindow : Window
         }
 
         var address = HotspotIpBox.Text.Trim();
-        if (string.IsNullOrEmpty(address))
+        if (!ShareViaHotspotSwitch.IsOn || string.IsNullOrEmpty(address))
         {
             HotspotUriBox.Text = string.Empty;
             SyncGuideEndpoints();
@@ -1305,9 +1306,9 @@ public sealed partial class MainWindow : Window
 
         var password = SharePasswordBox is not null && !string.IsNullOrEmpty(SharePasswordBox.Password)
             ? SharePasswordBox.Password
-            : (hasSavedLanSocksPassword ? "saved-password" : "password");
+            : string.Empty;
 
-        HotspotUriBox.Text = $"socks5://{username}:{password}@{address}:{port}";
+        HotspotUriBox.Text = Presentation.HotspotEndpointText.CreateUri(address, port, username, password);
         SyncGuideEndpoints();
     }
 
@@ -1318,8 +1319,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var detector = new HotspotNetworkDetector();
-        var detected = detector.TryDetect();
+        (string Address, string Name)? detected;
+        try
+        {
+            detected = new HotspotNetworkDetector().TryDetect();
+        }
+        catch (NetworkInformationException)
+        {
+            // Adapters may disappear while Windows changes hotspot state.
+            detected = null;
+        }
 
         if (detected is not null)
         {

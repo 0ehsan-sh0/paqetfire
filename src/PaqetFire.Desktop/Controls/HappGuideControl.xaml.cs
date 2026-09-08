@@ -20,6 +20,9 @@ public sealed partial class HappGuideControl : UserControl
         UsernameBox.Text = username;
         PasswordBox.Text = password;
         SocksUriBox.Text = socksUri;
+        PasswordBox.PlaceholderText = "Re-enter your proxy password on the Routing page";
+        CopyPasswordButton.IsEnabled = !string.IsNullOrEmpty(password);
+        CopyUriButton.IsEnabled = !string.IsNullOrEmpty(socksUri);
     }
 
     private void BackButton_Click(object sender, RoutedEventArgs e)
@@ -54,14 +57,14 @@ public sealed partial class HappGuideControl : UserControl
 
     private void CopyToClipboard(string text, string label)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrEmpty(text))
         {
             ShowFeedback(InfoBarSeverity.Warning, "Nothing to copy", $"{label} is not set yet. Detect your hotspot first.");
             return;
         }
 
         var package = new DataPackage();
-        package.SetText(text.Trim());
+        package.SetText(text);
         Clipboard.SetContent(package);
         ShowFeedback(InfoBarSeverity.Success, "Copied", $"{label} copied to the clipboard.");
     }
