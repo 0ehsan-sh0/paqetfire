@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="../../payload/payload-manifest.json" Link="release-payload-manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../installer/PaqetFire.Installer/Package.wxs" Link="installer-package.wxs" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">

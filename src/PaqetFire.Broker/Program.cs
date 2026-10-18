@@ -39,6 +39,8 @@ var paths = new RuntimePaths(
 builder.Services.AddSingleton(paths);
 builder.Services.AddSingleton<PayloadIntegrityInspector>();
 builder.Services.AddSingleton<PrerequisiteInspector>();
+builder.Services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();
+builder.Services.AddSingleton<EngineFirewallRules>();
 builder.Services.AddSingleton<NetworkEnvironmentDetector>();
 builder.Services.AddSingleton<HotspotNetworkDetector>();
 builder.Services.AddSingleton<IRouteProbe, SocketRouteProbe>();

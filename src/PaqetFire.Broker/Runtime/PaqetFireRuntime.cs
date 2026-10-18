@@ -30,6 +30,7 @@ public sealed class PaqetFireRuntime(
     HotspotNetworkDetector hotspotDetector,
     PayloadIntegrityInspector payloadInspector,
     PrerequisiteInspector prerequisiteInspector,
+    EngineFirewallRules engineFirewallRules,
     IConnectionVerifier connectionVerifier,
     RuntimePaths paths,
     ILogger<PaqetFireRuntime> logger) : IPaqetFireRuntime
@@ -654,6 +655,8 @@ public sealed class PaqetFireRuntime(
         {
             throw new MissingPrerequisiteException(missing);
         }
+
+        engineFirewallRules.Repair();
     }
 
     private static IReadOnlyList<string> TakeRecentLogsWithinBudget(IEnumerable<string> source)

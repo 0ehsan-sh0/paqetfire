@@ -183,7 +183,9 @@ public sealed class ProfileManagementTests
             xray = new(BundledEngineOptions.CreateXray(paths));
             // Profile editing must not need engines, payloads, or a usable network adapter.
             Runtime = new(Controller, paqet, xray, new SettingsStore(), Store,
-                Configurations, null!, null!, null!, null!, null!, null!, new PrerequisiteInspector(), null!, paths,
+                Configurations, null!, null!, null!, null!, null!, null!, new PrerequisiteInspector(),
+                new EngineFirewallRules(new InMemoryFirewallRuleStore(), paths, NullLogger<EngineFirewallRules>.Instance),
+                null!, paths,
                 NullLogger<PaqetFireRuntime>.Instance);
         }
 

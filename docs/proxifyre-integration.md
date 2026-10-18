@@ -143,3 +143,9 @@ The composition root must:
 The broker reports the bundled engine version and performs prerequisite checks.
 The installer retains the two program-scoped firewall rules and removes obsolete
 standalone `ProxiFyreService` registration; the broker owns the process lifecycle.
+Before every connect, the broker also restores any of the installer's four engine
+firewall rules that are missing, disabled, or point at another path, using the same
+rule names so MSI uninstall still removes them. Windows Installer deletes these rules
+by name when *any* PaqetFire package is uninstalled, and a firewall reset deletes them
+too; without them the Private or Public profile silently drops ProxiFyre's redirected
+traffic.

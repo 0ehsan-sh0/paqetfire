@@ -183,6 +183,8 @@ public sealed class HotspotSharingTests
         services.AddSingleton(paths);
         services.AddSingleton<PayloadIntegrityInspector>();
         services.AddSingleton<PrerequisiteInspector>();
+        services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();
+        services.AddSingleton<EngineFirewallRules>();
         services.AddSingleton<NetworkEnvironmentDetector>();
         services.AddSingleton<HotspotNetworkDetector>();
         services.AddSingleton<IRouteProbe, SocketRouteProbe>();
@@ -263,6 +265,8 @@ public sealed class HotspotSharingTests
         services.AddSingleton(paths);
         services.AddSingleton<PayloadIntegrityInspector>();
         services.AddSingleton<PrerequisiteInspector>();
+        services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();
+        services.AddSingleton<EngineFirewallRules>();
         services.AddSingleton<IRouteProbe, SocketRouteProbe>();
         services.AddSingleton<IConnectionVerifier, ConnectionVerifier>();
         services.AddSingleton<NetworkEnvironmentDetector>();
