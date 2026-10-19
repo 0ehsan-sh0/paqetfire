@@ -1184,7 +1184,7 @@ public sealed partial class MainWindow : Window
     private IEnumerable<Control> ConfigurationControls() =>
         new Control[] { ProfileNameBox, ServerEndpointBox, TransportKeyBox, KcpModeBox, NetworkInterfaceBox, DetectAdapterButton,
             LocalFlagsBox, RemoteFlagsBox, RoutingModeButtons, SelectedApplicationsBox,
-            UserExclusionsBox, BypassLanSwitch, RegionalPresetBox, DomainStrategyBox, DnsResolverBox,
+            UserExclusionsBox, BypassLanSwitch, RegionalPresetBox, DomainStrategyBox, DnsResolverBox, FakeDnsSwitch,
             DirectRouteDestinationsBox,
             BlockAdsSwitch, BlockQuicSwitch, DirectBitTorrentSwitch, KillSwitchToggle,
             ShareWithLanSwitch, LanSharePortBox,
@@ -1266,6 +1266,7 @@ public sealed partial class MainWindow : Window
                 var m when m.Contains("regional") => RegionalPresetBox,
                 var m when m.Contains("domain strategy") => DomainStrategyBox,
                 var m when m.Contains("DNS resolver") => DnsResolverBox,
+                var m when m.Contains("FakeDNS") => FakeDnsSwitch,
                 _ => (Control)RoutingModeButtons,
             };
             first ??= control;
@@ -1489,6 +1490,27 @@ public sealed partial class MainWindow : Window
         AddActivity("Activity log copied to the clipboard.");
     }
 
+    private async void CopyDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var diagnostics = await ViewModel.GetDiagnosticsAsync();
+        if (diagnostics is null)
+        {
+            ShowInfo(VerificationInfoBar, InfoBarSeverity.Error, "Diagnostics unavailable",
+                ViewModel.ErrorMessage ?? "The broker did not return a diagnostic report.");
+            return;
+        }
+
+        var activity = string.Join(Environment.NewLine, ActivityEntries.Select(entry =>
+            $"{entry.Time} [{entry.Level}] {entry.Message}"));
+        var package = new DataPackage();
+        package.SetText(diagnostics + Environment.NewLine + "[Desktop activity]" + Environment.NewLine +
+            DiagnosticRedactor.Redact(activity, []));
+        Clipboard.SetContent(package);
+        ShowInfo(VerificationInfoBar, InfoBarSeverity.Success, "Diagnostics copied",
+            "Paste the report into your bug report. Review it first; secrets, the server host, and public IP addresses are redacted.");
+        AddActivity("Diagnostic report copied to the clipboard.");
+    }
+
     private void ClearLogsButton_Click(object sender, RoutedEventArgs e)
     {
         ActivityEntries.Clear();
@@ -1636,6 +1658,7 @@ public sealed partial class MainWindow : Window
                 _ => XrayDomainStrategy.IPIfNonMatch,
             },
             DnsResolver = SelectedDnsResolver(),
+            FakeDns = FakeDnsSwitch.IsOn,
             BlockAds = BlockAdsSwitch.IsOn,
             BlockQuic = BlockQuicSwitch.IsOn,
             DirectBitTorrent = DirectBitTorrentSwitch.IsOn,
@@ -1706,6 +1729,7 @@ public sealed partial class MainWindow : Window
             _ => 1,
         };
         SelectDnsResolver(source.DnsResolver);
+        FakeDnsSwitch.IsOn = source.FakeDns;
         BlockAdsSwitch.IsOn = source.BlockAds;
         BlockQuicSwitch.IsOn = source.BlockQuic;
         DirectBitTorrentSwitch.IsOn = source.DirectBitTorrent;
@@ -1770,6 +1794,7 @@ public sealed partial class MainWindow : Window
             _ => XrayDomainStrategy.IPIfNonMatch,
         };
         preferences.DnsResolver = SelectedDnsResolver();
+        preferences.FakeDns = FakeDnsSwitch.IsOn;
         preferences.BlockAds = BlockAdsSwitch.IsOn;
         preferences.BlockQuic = BlockQuicSwitch.IsOn;
         preferences.DirectBitTorrent = DirectBitTorrentSwitch.IsOn;
@@ -1896,6 +1921,7 @@ public sealed partial class MainWindow : Window
                 _ => 1,
             };
             SelectDnsResolver(settings.DnsResolver);
+            FakeDnsSwitch.IsOn = settings.FakeDns;
             BlockAdsSwitch.IsOn = settings.BlockAds;
             BlockQuicSwitch.IsOn = settings.BlockQuic;
             DirectBitTorrentSwitch.IsOn = settings.DirectBitTorrent;
@@ -2561,7 +2587,8 @@ public sealed partial class MainWindow : Window
         if (args.PropertyName is nameof(ConnectionViewModel.ConnectionState) or
             nameof(ConnectionViewModel.CanConnect) or
             nameof(ConnectionViewModel.CanDisconnect) or
-            nameof(ConnectionViewModel.IsBusy))
+            nameof(ConnectionViewModel.IsBusy) or
+            nameof(ConnectionViewModel.IsTunnelStalled))
         {
             SetSaveActionsEnabled(!configurationSaveInProgress && !ViewModel.IsBusy);
             UpdateTrayState();
@@ -2590,6 +2617,7 @@ public sealed partial class MainWindow : Window
 
         var resourceKey = ViewModel.ConnectionState switch
         {
+            BrokerConnectionState.Connected when ViewModel.IsTunnelStalled => "PaqetFireWarningBrush",
             BrokerConnectionState.Connected => "PaqetFireSuccessBrush",
             BrokerConnectionState.Connecting => "PaqetFireAccentBrush",
             BrokerConnectionState.Guarded or BrokerConnectionState.NotReady or BrokerConnectionState.Degraded => "PaqetFireWarningBrush",
@@ -2616,6 +2644,7 @@ public sealed partial class MainWindow : Window
 
         var stateText = ViewModel.ConnectionState switch
         {
+            BrokerConnectionState.Connected when ViewModel.IsTunnelStalled => "Tunnel not responding",
             BrokerConnectionState.Connected => "Connected",
             BrokerConnectionState.Connecting => "Connecting…",
             BrokerConnectionState.Disconnecting => "Disconnecting…",

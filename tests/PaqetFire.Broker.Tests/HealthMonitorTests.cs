@@ -75,6 +75,8 @@ public sealed class HealthMonitorTests
         public ValueTask<BrokerSnapshot> VerifyConnectionAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> ManageProfilesAsync(ProfileAction action, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<string> ExportProfilesAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask RestartTransportAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<string> GetDiagnosticsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> SaveSettingsAsync(PaqetFireSettings settings, bool connectAfterSave,
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }
@@ -103,6 +105,8 @@ public sealed class HealthMonitorTests
         public ValueTask<BrokerSnapshot> VerifyConnectionAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> ManageProfilesAsync(ProfileAction action, CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<string> ExportProfilesAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask RestartTransportAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<string> GetDiagnosticsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> SaveSettingsAsync(PaqetFireSettings settings, bool connectAfterSave,
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }

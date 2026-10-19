@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using PaqetFire.Core.Configuration;
 using PaqetFire.Core.Connections;
 using PaqetFire.Core.Diagnostics;
@@ -12,7 +13,8 @@ public interface IConnectionVerifier
     ValueTask<ConnectionVerificationReport> VerifyAsync(
         ConnectionStatus connection,
         PaqetFireSettings settings,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        IReadOnlyList<IPAddress>? networkResolvers = null);
 }
 
 public interface IRouteProbe
@@ -24,6 +26,9 @@ public interface IRouteProbe
     ValueTask<RouteProbeResult> CheckUdpDnsAsync(CancellationToken cancellationToken);
 
     ValueTask<RouteProbeResult> CheckIpv6Async(CancellationToken cancellationToken);
+
+    /// <summary>Compares the resolver that answers a lookup through the route with the network's own resolver.</summary>
+    ValueTask<RouteProbeResult> CheckDnsLeakAsync(IReadOnlyList<IPAddress> networkResolvers, CancellationToken cancellationToken);
 }
 
 public sealed record RouteProbeResult(
@@ -41,7 +46,8 @@ public sealed class ConnectionVerifier(IRouteProbe routeProbe, TimeProvider? tim
     public async ValueTask<ConnectionVerificationReport> VerifyAsync(
         ConnectionStatus connection,
         PaqetFireSettings settings,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<IPAddress>? networkResolvers = null)
     {
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(settings);
@@ -107,6 +113,11 @@ public sealed class ConnectionVerifier(IRouteProbe routeProbe, TimeProvider? tim
             ? ToCheck(VerificationCheckKind.UdpDns, "Routed UDP/DNS", await routeProbe.CheckUdpDnsAsync(cancellationToken).ConfigureAwait(false))
             : Skipped(VerificationCheckKind.UdpDns, "Routed UDP/DNS", "UDP or IPv4 routing is disabled in this profile."));
 
+        checks.Add(settings.RouteUdp && settings.RouteIpv4
+            ? ToCheck(VerificationCheckKind.DnsLeak, "DNS leak", await routeProbe
+                .CheckDnsLeakAsync(networkResolvers ?? [], cancellationToken).ConfigureAwait(false))
+            : Skipped(VerificationCheckKind.DnsLeak, "DNS leak", "UDP or IPv4 routing is disabled, so Windows lookups are not captured."));
+
         checks.Add(settings.RouteIpv6
             ? ToCheck(VerificationCheckKind.Ipv6, "IPv6 route", await routeProbe.CheckIpv6Async(cancellationToken).ConfigureAwait(false))
             : Skipped(VerificationCheckKind.Ipv6, "IPv6 route", "IPv6 routing is disabled in this profile."));
@@ -122,6 +133,7 @@ public sealed class ConnectionVerifier(IRouteProbe routeProbe, TimeProvider? tim
         checks.Add(Skipped(VerificationCheckKind.LocalRoute, "Local Xray route", detail));
         checks.Add(Skipped(VerificationCheckKind.TcpIpv4, "TCP over IPv4", detail));
         checks.Add(Skipped(VerificationCheckKind.UdpDns, "Routed UDP/DNS", detail));
+        checks.Add(Skipped(VerificationCheckKind.DnsLeak, "DNS leak", detail));
         checks.Add(Skipped(VerificationCheckKind.Ipv6, "IPv6 route", settings.RouteIpv6 ? detail : "IPv6 routing is disabled in this profile."));
         checks.Add(Skipped(VerificationCheckKind.PublicAddress, "Proxied public address", detail));
     }

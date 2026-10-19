@@ -11,6 +11,9 @@ public interface ITunnelProbe
     ValueTask<int?> MeasureLatencyAsync(CancellationToken cancellationToken);
 
     ValueTask<IPAddress?> GetPublicAddressAsync(CancellationToken cancellationToken);
+
+    /// <summary>Whether a fresh SOCKS stream through Paqet reaches either connectivity endpoint.</summary>
+    ValueTask<bool> CheckReachabilityAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -21,10 +24,16 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
 {
     private static readonly Uri LatencyUri = new("http://cp.cloudflare.com/generate_204");
     private static readonly Uri PublicAddressUri = new("https://api4.ipify.org");
+    private static readonly Uri[] ReachabilityUris =
+    [
+        LatencyUri,
+        new("http://connectivitycheck.gstatic.com/generate_204"),
+    ];
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan WarmConnectionLifetime = TimeSpan.FromSeconds(20);
 
     private readonly HttpClient client;
+    private readonly HttpClient reachabilityClient;
     private long lastSuccessTimestamp;
 
     public PaqetTunnelProbe(EngineSocksCredentials credentials)
@@ -39,6 +48,22 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
             ConnectTimeout = ProbeTimeout,
             PooledConnectionIdleTimeout = WarmConnectionLifetime + TimeSpan.FromSeconds(10),
             MaxConnectionsPerServer = 1,
+        })
+        {
+            Timeout = ProbeTimeout,
+        };
+
+        // No pooling: a warm stream can outlive a dead carrier for a while, while each
+        // new stream must be negotiated through Paqet with the server.
+        reachabilityClient = new HttpClient(new SocketsHttpHandler
+        {
+            Proxy = new WebProxy(new Uri($"socks5://127.0.0.1:{XrayJsonConfigurationWriter.PaqetPort}"))
+            {
+                Credentials = new NetworkCredential(credentials.Username, credentials.Password),
+            },
+            UseProxy = true,
+            ConnectTimeout = ProbeTimeout,
+            PooledConnectionLifetime = TimeSpan.Zero,
         })
         {
             Timeout = ProbeTimeout,
@@ -82,7 +107,47 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
         }
     }
 
-    public void Dispose() => client.Dispose();
+    public async ValueTask<bool> CheckReachabilityAsync(CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var attempts = ReachabilityUris.Select(uri => ReachAsync(uri, linked.Token)).ToList();
+        while (attempts.Count > 0)
+        {
+            var completed = await Task.WhenAny(attempts).ConfigureAwait(false);
+            attempts.Remove(completed);
+            if (await completed.ConfigureAwait(false))
+            {
+                await linked.CancelAsync().ConfigureAwait(false);
+                return true;
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return false;
+    }
+
+    public void Dispose()
+    {
+        client.Dispose();
+        reachabilityClient.Dispose();
+    }
+
+    private async Task<bool> ReachAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, uri);
+            using var response = await reachabilityClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception exception) when (exception is IOException or SocketException or HttpRequestException or
+                                              InvalidOperationException or OperationCanceledException)
+        {
+            return false;
+        }
+    }
 
     private async Task SendLatencyRequestAsync(CancellationToken cancellationToken)
     {

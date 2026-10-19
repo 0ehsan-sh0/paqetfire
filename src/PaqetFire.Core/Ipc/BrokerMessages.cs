@@ -17,6 +17,7 @@ public enum BrokerCommand
     ManageProfiles,
     ExportProfiles,
     GetLiveStats,
+    GetDiagnostics,
 }
 
 public enum BrokerMessageType
@@ -58,7 +59,8 @@ public sealed record BrokerResponse(
     BrokerSnapshot? Snapshot = null,
     BrokerError? Error = null,
     string? ExportedProfiles = null,
-    LiveConnectionStats? LiveStats = null)
+    LiveConnectionStats? LiveStats = null,
+    string? Diagnostics = null)
 {
     public static BrokerResponse Succeeded(Guid requestId, BrokerSnapshot? snapshot = null) =>
         new(requestId, IpcProtocol.Version, true, snapshot);
@@ -103,6 +105,7 @@ public sealed record BrokerSnapshot(
     ConnectionState ConnectionState = ConnectionState.Disconnected,
     string? OperationWarning = null,
     ConnectionVerificationReport? Verification = null,
-    ProfileCatalogView? ProfileCatalog = null);
+    ProfileCatalogView? ProfileCatalog = null,
+    TunnelHealthReport? Tunnel = null);
 
 public sealed record BrokerError(BrokerErrorCode Code, string Message);

@@ -79,7 +79,7 @@ public sealed class BundledEngineCompatibilityTests
             features ? new LanSocksShare("192.168.50.12", 2082, "test-user", "test-password") : null,
             features ? new LanSocksShare("192.168.137.1", 2083, "test-user", "test-password") : null,
             features ? ["example.com", "*.example.net", "203.0.113.10", "2001:db8::/32"] : null,
-            features ? new XrayDnsPolicy(XrayDnsResolver.Cloudflare, ["192.168.50.1"]) : null,
+            features ? new XrayDnsPolicy(XrayDnsResolver.Cloudflare, ["192.168.50.1"], UseFakeDns: true) : null,
             features ? new EngineSocksCredentials("test-user", "test-password") : null);
         var configurationPath = Path.Combine(Path.GetTempPath(), $"PaqetFire-xray-{Guid.NewGuid():N}.json");
         try

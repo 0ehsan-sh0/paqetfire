@@ -74,6 +74,13 @@ public sealed class ConnectionBrokerRequestHandler(
                         true,
                         LiveStats: await liveStats.GetAsync(cancellationToken).ConfigureAwait(false));
 
+                case BrokerCommand.GetDiagnostics:
+                    return new BrokerResponse(
+                        request.RequestId,
+                        IpcProtocol.Version,
+                        true,
+                        Diagnostics: await runtime.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false));
+
                 case BrokerCommand.GetSnapshot:
                     return BrokerResponse.Succeeded(
                         request.RequestId,

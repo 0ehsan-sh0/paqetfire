@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using PaqetFire.Broker.Configuration;
 using PaqetFire.Broker.Deployment;
+using PaqetFire.Broker.Diagnostics;
 using PaqetFire.Broker.Engines;
 using PaqetFire.Broker.Runtime;
 using PaqetFire.Core.Configuration;
@@ -185,7 +186,7 @@ public sealed class ProfileManagementTests
             Runtime = new(Controller, paqet, xray, new SettingsStore(), Store,
                 Configurations, null!, null!, null!, null!, null!, null!, new PrerequisiteInspector(),
                 new EngineFirewallRules(new InMemoryFirewallRuleStore(), paths, NullLogger<EngineFirewallRules>.Instance),
-                null!, EngineSocksCredentials.Generate(), paths,
+                null!, EngineSocksCredentials.Generate(), new TunnelHealthTracker(), paths,
                 NullLogger<PaqetFireRuntime>.Instance);
         }
 
@@ -225,6 +226,7 @@ public sealed class ProfileManagementTests
         public ValueTask<ConnectionStatus> GetStatusAsync(CancellationToken token) => ValueTask.FromResult(new ConnectionStatus(
             State, new(EngineKind.Paqet, EngineState.Stopped),
             new(EngineKind.Xray, EngineState.Stopped), new(EngineKind.ProxiFyre, EngineState.Stopped)));
+        public ValueTask RestartTransportAsync(CancellationToken token) => ValueTask.CompletedTask;
         public ValueTask DisconnectAsync(CancellationToken token)
         {
             if (DisconnectError is { } error) return ValueTask.FromException(error);

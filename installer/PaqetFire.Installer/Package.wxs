@@ -170,7 +170,15 @@
             Type="ownProcess"
             Start="auto"
             ErrorControl="normal"
-            Account="LocalSystem" />
+            Account="LocalSystem">
+          <!-- Restart after a crash so leftover engines are cleaned up and the kill switch is re-armed. -->
+          <util:ServiceConfig
+              FirstFailureActionType="restart"
+              SecondFailureActionType="restart"
+              ThirdFailureActionType="restart"
+              RestartServiceDelayInSeconds="5"
+              ResetPeriodInDays="1" />
+        </ServiceInstall>
         <ServiceControl
             Id="ControlPaqetFireBroker"
             Name="PaqetFire Broker"

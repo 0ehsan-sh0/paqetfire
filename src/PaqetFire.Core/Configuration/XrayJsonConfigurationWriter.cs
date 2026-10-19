@@ -13,6 +13,10 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
     private const string RemoteDnsTag = "dns-remote";
     private const string DomesticDnsTag = "dns-domestic";
 
+    // ProxiFyre's LAN bypass exempts fc00::/7, which holds Xray's default IPv6 pool, so
+    // only IPv4 placeholders are issued; AAAA lookups fall through to encrypted DNS.
+    public const string FakeDnsIpv4Pool = "198.18.0.0/15";
+
     public string Write(XrayRoutingPolicy policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
@@ -61,6 +65,16 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 WriteDnsModule(writer, dns, policy.RegionalPreset, directDomains);
             }
 
+            if (dns?.UseFakeDns == true)
+            {
+                writer.WriteStartArray("fakedns");
+                writer.WriteStartObject();
+                writer.WriteString("ipPool", FakeDnsIpv4Pool);
+                writer.WriteNumber("poolSize", 65535);
+                writer.WriteEndObject();
+                writer.WriteEndArray();
+            }
+
             // Loopback-only StatsService exposes traffic counters for the live
             // connection card. HandlerService is deliberately not enabled.
             writer.WriteStartObject("api");
@@ -103,6 +117,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteStringValue("http");
             writer.WriteStringValue("tls");
             writer.WriteStringValue("quic");
+            WriteFakeDnsOverride(writer, dns);
             writer.WriteEndArray();
             // ProxiFyre can only forward the resolved IP address. Let Xray replace
             // that address with a hostname recovered from HTTP/TLS/QUIC so the
@@ -132,6 +147,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteStringValue("http");
                 writer.WriteStringValue("tls");
                 writer.WriteStringValue("quic");
+                WriteFakeDnsOverride(writer, dns);
                 writer.WriteEndArray();
                 writer.WriteBoolean("routeOnly", false);
                 writer.WriteEndObject();
@@ -157,6 +173,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteStringValue("http");
                 writer.WriteStringValue("tls");
                 writer.WriteStringValue("quic");
+                WriteFakeDnsOverride(writer, dns);
                 writer.WriteEndArray();
                 writer.WriteBoolean("routeOnly", false);
                 writer.WriteEndObject();
@@ -348,6 +365,11 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             throw new ConfigurationValidationException(["DNS must resolve at least one address family."]);
         }
 
+        if (dns.UseFakeDns && (dns.Resolver == XrayDnsResolver.System || !dns.ResolveIpv4))
+        {
+            throw new ConfigurationValidationException(["FakeDNS requires encrypted DNS and IPv4 routing."]);
+        }
+
         if (dns.DomesticServers.Any(server =>
                 !System.Net.IPAddress.TryParse(server, out var address) ||
                 address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork))
@@ -383,6 +405,13 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
     {
         writer.WriteStartObject("dns");
         writer.WriteStartArray("servers");
+        if (dns.UseFakeDns)
+        {
+            // First among servers without domains, so it answers every lookup that is
+            // not pinned to the domestic resolver. Xray's own lookups always skip it.
+            writer.WriteStringValue("fakedns");
+        }
+
         foreach (var address in RemoteDnsAddresses(dns.Resolver))
         {
             writer.WriteStartObject();
@@ -456,6 +485,14 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
         writer.WriteString("port", "53");
         writer.WriteString("outboundTag", DnsOutboundTag);
         writer.WriteEndObject();
+    }
+
+    private static void WriteFakeDnsOverride(Utf8JsonWriter writer, XrayDnsPolicy? dns)
+    {
+        if (dns?.UseFakeDns == true)
+        {
+            writer.WriteStringValue("fakedns");
+        }
     }
 
     private static void WritePasswordAuthentication(Utf8JsonWriter writer, string username, string password)

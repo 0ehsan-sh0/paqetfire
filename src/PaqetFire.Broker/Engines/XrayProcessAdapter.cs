@@ -94,6 +94,7 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
             _ = PumpAsync(started.StandardError);
             try
             {
+                EngineProcessJob.Assign(started);
                 await WaitUntilReadyAsync(started, cancellationToken).ConfigureAwait(false);
                 SetState(EngineState.Running, "Xray is applying the regional routing policy.");
             }

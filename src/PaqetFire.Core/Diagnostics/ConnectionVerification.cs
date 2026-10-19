@@ -9,6 +9,7 @@ public enum VerificationCheckKind
     UdpDns,
     Ipv6,
     PublicAddress,
+    DnsLeak,
 }
 
 public enum VerificationCheckStatus

@@ -72,7 +72,9 @@ builder.Services.AddSingleton<IConnectionController>(services => new ConnectionC
     services.GetRequiredService<PaqetProcessAdapter>(),
     services.GetRequiredService<XrayProcessAdapter>(),
     services.GetRequiredService<ProxiFyreProcessAdapter>()));
+builder.Services.AddSingleton<TunnelHealthTracker>();
 builder.Services.AddSingleton<IPaqetFireRuntime, PaqetFireRuntime>();
+builder.Services.AddSingleton<TunnelWatchdog>();
 builder.Services.AddSingleton<IBrokerRequestHandler, ConnectionBrokerRequestHandler>();
 builder.Services.AddSingleton<NamedPipeBrokerServer>();
 builder.Services.AddHostedService<BrokerWorker>();

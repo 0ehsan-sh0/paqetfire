@@ -27,6 +27,7 @@ $checks = [ordered]@{
     DesktopRelaunchedAfterUpdate = (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:CustomAction[@Id='RelaunchPaqetFireDesktop' and @Execute='immediate' and @Return='asyncNoWait' and contains(@ExeCommand, 'explorer.exe') and contains(@ExeCommand, '[#PaqetFireDesktopExe]')]").Count -eq 1
     RelaunchRequiresUpdaterOptIn = (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:InstallExecuteSequence/wix:Custom[@Action='RelaunchPaqetFireDesktop' and @After='InstallFinalize' and contains(@Condition, 'PAQETFIRE_RELAUNCH') and contains(@Condition, 'REMOVE~=')]").Count -eq 1
     UtilExtension = (Select-Xml -Xml $project -XPath "//PackageReference[@Include='WixToolset.Util.wixext']").Count -eq 1
+    BrokerRestartsAfterFailure = (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:ServiceInstall[@Name='PaqetFire Broker']/util:ServiceConfig[@FirstFailureActionType='restart' and @SecondFailureActionType='restart' and @ThirdFailureActionType='restart']").Count -eq 1
 }
 
 $failedChecks = @($checks.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object Key)

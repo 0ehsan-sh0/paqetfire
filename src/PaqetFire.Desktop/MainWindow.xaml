@@ -446,7 +446,9 @@
                   <ComboBoxItem Content="Quad9 — Encrypted DNS through Paqet" />
                   <ComboBoxItem Content="System resolver — Lookups bypass PaqetFire" />
                 </ComboBox>
-                <TextBlock Text="Captured DNS lookups are answered by Xray over DNS-over-HTTPS through Paqet. Local, Iranian, and custom direct domains use this network's resolver. Lookups by applications outside the route, or to LAN resolvers while local network bypass is on, are not captured."
+                <ToggleSwitch x:Name="FakeDnsSwitch" Header="FakeDNS (faster first connections)"
+                              OnContent="On · placeholder addresses, real lookups happen on the Paqet server" OffContent="Off" />
+                <TextBlock Text="Captured DNS lookups are answered by Xray over DNS-over-HTTPS through Paqet. Local, Iranian, and custom direct domains use this network's resolver. Lookups by applications outside the route, or to LAN resolvers while local network bypass is on, are not captured. FakeDNS answers instantly with addresses from 198.18.0.0/15 and skips a tunnel round trip per new domain; it needs IPv4 routing and cannot be combined with application exclusions in all-applications mode. Applications that cache DNS themselves may need a restart after disconnecting."
                            FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
                 <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -721,6 +723,8 @@
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
                 <Button Content="Refresh status" Click="RefreshButton_Click" />
+                <Button Content="Copy diagnostics" Click="CopyDiagnosticsButton_Click"
+                        ToolTipService.ToolTip="Copies a report for bug reports. Secrets, the server host, and public IP addresses are redacted." />
                 <Button Content="Verify route" Style="{StaticResource AccentButtonStyle}"
                         Click="VerifyConnectionButton_Click" />
               </StackPanel>
@@ -750,7 +754,7 @@
                   <TextBlock x:Name="VerificationSummaryText"
                              Text="Connect, then verify the local proxy route over TCP, routed UDP/DNS, IPv4, and IPv6."
                              Opacity="0.68" TextWrapping="Wrap" />
-                  <TextBlock Text="Only when you click Verify route, public-address checks contact api4.ipify.org and api6.ipify.org through Xray; returned addresses remain local. UDP/DNS sends a query for example.com through Xray's UDP relay; with encrypted DNS, Xray answers it over DNS-over-HTTPS through Paqet. This does not prove that every application is captured or detect system DNS/WebRTC leaks."
+                  <TextBlock Text="Only when you click Verify route, public-address checks contact api4.ipify.org and api6.ipify.org through Xray; returned addresses remain local. UDP/DNS sends a query for example.com through Xray's UDP relay; with encrypted DNS, Xray answers it over DNS-over-HTTPS through Paqet. The DNS leak check looks up whoami.akamai.net through the route and directly, then compares which resolver answered. This does not prove that every application is captured or detect WebRTC leaks."
                              FontSize="12" Opacity="0.58" TextWrapping="Wrap" />
                 </StackPanel>
                 <InfoBar x:Name="VerificationInfoBar" IsOpen="False" IsClosable="True" />

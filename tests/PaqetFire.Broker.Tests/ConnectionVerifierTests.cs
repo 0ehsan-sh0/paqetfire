@@ -18,7 +18,7 @@ public sealed class ConnectionVerifierTests
         var report = await verifier.VerifyAsync(ConnectedStatus(), new PaqetFireSettings(), CancellationToken.None);
 
         Assert.True(report.IsHealthy);
-        Assert.Equal(6, report.PassedCount);
+        Assert.Equal(7, report.PassedCount);
         Assert.Equal(0, report.FailedCount);
         Assert.Equal(VerificationCheckStatus.Warning,
             report.Checks.Single(check => check.Kind == VerificationCheckKind.ApplicationCapture).Status);
@@ -26,6 +26,7 @@ public sealed class ConnectionVerifierTests
         Assert.Equal(1, probe.TcpCalls);
         Assert.Equal(1, probe.UdpCalls);
         Assert.Equal(1, probe.Ipv6Calls);
+        Assert.Equal(1, probe.DnsLeakCalls);
         Assert.Equal("198.51.100.10", report.Checks.Single(check => check.Kind == VerificationCheckKind.PublicAddress).ObservedValue);
     }
 
@@ -45,7 +46,7 @@ public sealed class ConnectionVerifierTests
 
         Assert.False(report.IsHealthy);
         Assert.Equal(2, report.FailedCount);
-        Assert.Equal(5, report.Checks.Count(check => check.Status == VerificationCheckStatus.Skipped));
+        Assert.Equal(6, report.Checks.Count(check => check.Status == VerificationCheckStatus.Skipped));
         Assert.Equal(0, probe.TotalCalls);
     }
 
@@ -62,8 +63,11 @@ public sealed class ConnectionVerifierTests
             report.Checks.Single(check => check.Kind == VerificationCheckKind.UdpDns).Status);
         Assert.Equal(VerificationCheckStatus.Skipped,
             report.Checks.Single(check => check.Kind == VerificationCheckKind.Ipv6).Status);
+        Assert.Equal(VerificationCheckStatus.Skipped,
+            report.Checks.Single(check => check.Kind == VerificationCheckKind.DnsLeak).Status);
         Assert.Equal(0, probe.UdpCalls);
         Assert.Equal(0, probe.Ipv6Calls);
+        Assert.Equal(0, probe.DnsLeakCalls);
     }
 
     private static ConnectionStatus ConnectedStatus() => new(
@@ -78,7 +82,16 @@ public sealed class ConnectionVerifierTests
         public int TcpCalls { get; private set; }
         public int UdpCalls { get; private set; }
         public int Ipv6Calls { get; private set; }
-        public int TotalCalls => LocalCalls + TcpCalls + UdpCalls + Ipv6Calls;
+        public int DnsLeakCalls { get; private set; }
+        public int TotalCalls => LocalCalls + TcpCalls + UdpCalls + Ipv6Calls + DnsLeakCalls;
+
+        public ValueTask<RouteProbeResult> CheckDnsLeakAsync(
+            IReadOnlyList<System.Net.IPAddress> networkResolvers,
+            CancellationToken cancellationToken)
+        {
+            DnsLeakCalls++;
+            return ValueTask.FromResult(new RouteProbeResult(true, "resolver differs", 5, "172.69.0.1"));
+        }
 
         public ValueTask<RouteProbeResult> CheckLocalRouteAsync(CancellationToken cancellationToken)
         {

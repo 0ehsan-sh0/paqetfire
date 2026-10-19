@@ -1,4 +1,5 @@
 using PaqetFire.Broker.Deployment;
+using PaqetFire.Broker.Diagnostics;
 using PaqetFire.Broker.Ipc;
 using PaqetFire.Broker.Runtime;
 using PaqetFire.Core.Connections;
@@ -12,7 +13,8 @@ public sealed class BrokerWorker(
     ILogger<BrokerWorker> logger,
     PayloadIntegrityInspector payloadInspector,
     IPaqetFireRuntime runtime,
-    NamedPipeBrokerServer pipeServer) : BackgroundService
+    NamedPipeBrokerServer pipeServer,
+    TunnelWatchdog? tunnelWatchdog = null) : BackgroundService
 {
     private readonly Channel<BrokerEvent> publications = Channel.CreateBounded<BrokerEvent>(
         new BoundedChannelOptions(1)
@@ -42,7 +44,8 @@ public sealed class BrokerWorker(
         var pipeTask = pipeServer.RunAsync(stoppingToken);
         var monitorTask = MonitorAsync(stoppingToken);
         var publicationTask = PublishEventsAsync(stoppingToken);
-        await Task.WhenAll(pipeTask, monitorTask, publicationTask);
+        var watchdogTask = tunnelWatchdog?.RunAsync(stoppingToken) ?? Task.CompletedTask;
+        await Task.WhenAll(pipeTask, monitorTask, publicationTask, watchdogTask);
 
         logger.LogInformation("PaqetFire Broker stopped.");
     }
@@ -152,6 +155,7 @@ public sealed class BrokerWorker(
         previous.IsKillSwitchEnabled == current.IsKillSwitchEnabled &&
         previous.IsConfigured == current.IsConfigured &&
         previous.ConnectionState == current.ConnectionState &&
+        previous.Tunnel?.State == current.Tunnel?.State &&
         string.Equals(previous.StatusMessage, current.StatusMessage, StringComparison.Ordinal) &&
         HasSameSettings(previous.Settings, current.Settings) &&
         previous.Engines.SequenceEqual(current.Engines) &&
@@ -184,6 +188,7 @@ public sealed class BrokerWorker(
                previous.RegionalPreset == current.RegionalPreset &&
                previous.DomainStrategy == current.DomainStrategy &&
                previous.DnsResolver == current.DnsResolver &&
+               previous.FakeDns == current.FakeDns &&
                previous.BlockAds == current.BlockAds &&
                previous.BlockQuic == current.BlockQuic &&
                previous.DirectBitTorrent == current.DirectBitTorrent &&

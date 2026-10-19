@@ -296,6 +296,8 @@ public static class ProfileCatalogJson
 
         public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
 
+        public bool FakeDns { get; init; }
+
         public bool BlockAds { get; init; } = true;
 
         public bool BlockQuic { get; init; }
@@ -339,6 +341,7 @@ public static class ProfileCatalogJson
             RegionalPreset = settings.RegionalPreset,
             DomainStrategy = settings.DomainStrategy,
             DnsResolver = settings.DnsResolver,
+            FakeDns = settings.FakeDns,
             BlockAds = settings.BlockAds,
             BlockQuic = settings.BlockQuic,
             DirectBitTorrent = settings.DirectBitTorrent,
@@ -372,6 +375,7 @@ public static class ProfileCatalogJson
             RegionalPreset = RegionalPreset,
             DomainStrategy = DomainStrategy,
             DnsResolver = DnsResolver,
+            FakeDns = FakeDns,
             BlockAds = BlockAds,
             BlockQuic = BlockQuic,
             DirectBitTorrent = DirectBitTorrent,

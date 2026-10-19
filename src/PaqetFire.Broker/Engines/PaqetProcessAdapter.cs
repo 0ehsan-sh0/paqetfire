@@ -104,6 +104,8 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
                     _expectedExit = false;
                 }
 
+                EngineProcessJob.Assign(process);
+
                 process.EnableRaisingEvents = true;
                 process.Exited += HandleProcessExited;
                 _standardOutputPump = PumpLogAsync(process.StandardOutput, isError: false);

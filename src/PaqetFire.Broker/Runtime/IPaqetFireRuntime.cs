@@ -26,4 +26,9 @@ public interface IPaqetFireRuntime
     ValueTask<BrokerSnapshot> ManageProfilesAsync(ProfileAction action, CancellationToken cancellationToken);
 
     ValueTask<string> ExportProfilesAsync(CancellationToken cancellationToken);
+
+    /// <summary>Re-detects the network, rewrites engine configuration, and restarts Paqet while the route stays connected.</summary>
+    ValueTask RestartTransportAsync(CancellationToken cancellationToken);
+
+    ValueTask<string> GetDiagnosticsAsync(CancellationToken cancellationToken);
 }

@@ -12,6 +12,8 @@ using PaqetFire.Core.Engines;
 using PaqetFire.Core.Ipc;
 using PaqetFire.Core.Profiles;
 using PaqetFire.Core.Routing;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 
 namespace PaqetFire.Broker.Runtime;
@@ -33,6 +35,7 @@ public sealed class PaqetFireRuntime(
     EngineFirewallRules engineFirewallRules,
     IConnectionVerifier connectionVerifier,
     EngineSocksCredentials engineCredentials,
+    TunnelHealthTracker tunnelHealth,
     RuntimePaths paths,
     ILogger<PaqetFireRuntime> logger) : IPaqetFireRuntime
 {
@@ -41,9 +44,20 @@ public sealed class PaqetFireRuntime(
     private readonly SnapshotMetadataCache snapshotMetadata = new();
     private ConnectionVerificationReport? latestVerification;
     private ProfileCatalog? profileCatalog;
+    private readonly Dictionary<string, string> lastResolvedServers = new(StringComparer.OrdinalIgnoreCase);
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken)
     {
+        var orphans = await OrphanedEngineCleanup.TerminateAsync(
+                [paths.PaqetExecutablePath, paths.XrayExecutablePath, paths.ProxiFyreExecutablePath],
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (orphans.Count > 0)
+        {
+            logger.LogWarning("Stopped engines left by a previous broker process: {Engines}.", string.Join(", ", orphans));
+        }
+
+        FlushDnsCache();
         var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
         profileCatalog = await profileCatalogStore.LoadAsync(cancellationToken).ConfigureAwait(false);
         if (profileCatalog is null && settings is not null)
@@ -167,6 +181,7 @@ public sealed class PaqetFireRuntime(
                 normalized.KillSwitchEnabled,
                 reconnect,
                 cancellationToken).ConfigureAwait(false);
+            FlushDnsCache();
             var operationWarning = activationError is null ? null
                 : $"The profile was saved, but the route could not be activated. {activationError.Message}";
             if (activationError is not null)
@@ -229,6 +244,7 @@ public sealed class PaqetFireRuntime(
 
                 throw;
             }
+            FlushDnsCache();
             await snapshotMetadata.UpdateSettingsAsync(settings).ConfigureAwait(false);
             return await CreateSnapshotAsync(PaqetFireSettingsView.FromSettings(settings), cancellationToken).ConfigureAwait(false);
         }
@@ -255,6 +271,7 @@ public sealed class PaqetFireRuntime(
                 await connectionController.DisconnectAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            FlushDnsCache();
             return await CreateSnapshotAsync(settings, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -285,7 +302,11 @@ public sealed class PaqetFireRuntime(
             var settings = await LoadActiveSettingsAsync(cancellationToken).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Save a valid Paqet profile before verifying the route.");
             var status = await connectionController.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-            latestVerification = await connectionVerifier.VerifyAsync(status, Normalize(settings), cancellationToken)
+            latestVerification = await connectionVerifier.VerifyAsync(
+                    status,
+                    Normalize(settings),
+                    cancellationToken,
+                    DetectNetworkResolvers(settings))
                 .ConfigureAwait(false);
             logger.LogInformation(
                 "Connection verification completed with {PassedCount} passed and {FailedCount} failed checks.",
@@ -424,6 +445,7 @@ public sealed class PaqetFireRuntime(
                     reconnect: true,
                     cancellationToken).ConfigureAwait(false);
                 activationError = error?.Message;
+                FlushDnsCache();
             }
             else
             {
@@ -465,7 +487,7 @@ public sealed class PaqetFireRuntime(
     {
         var network = networkDetector.Detect(settings.NetworkInterfaceGuid);
         var paqetProfile = new PaqetProfile(
-            settings.ServerEndpoint,
+            await ResolveServerEndpointAsync(settings.ServerEndpoint, network, cancellationToken).ConfigureAwait(false),
             "127.0.0.1:1080",
             network.InterfaceName,
             network.InterfaceGuid,
@@ -509,7 +531,8 @@ public sealed class PaqetFireRuntime(
                 settings.DnsResolver,
                 network.DnsServers,
                 ResolveIpv4: settings.RouteIpv4,
-                ResolveIpv6: settings.RouteIpv6),
+                ResolveIpv6: settings.RouteIpv6,
+                UseFakeDns: settings.FakeDns),
             engineCredentials));
         var proxiFyreText = CreateProxiFyreConfiguration(settings);
 
@@ -520,6 +543,148 @@ public sealed class PaqetFireRuntime(
         await configurationStore.WriteAsync(paths.XrayConfigurationPath, xrayText, cancellationToken)
             .ConfigureAwait(false);
         return network.InterfaceName;
+    }
+
+    private IReadOnlyList<IPAddress> DetectNetworkResolvers(PaqetFireSettings settings)
+    {
+        try
+        {
+            return networkDetector.Detect(settings.NetworkInterfaceGuid).DnsServers.Select(IPAddress.Parse).ToArray();
+        }
+        catch (InvalidOperationException)
+        {
+            return [];
+        }
+    }
+
+    public async ValueTask<string> GetDiagnosticsAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var settings = await LoadActiveSettingsAsync(cancellationToken).ConfigureAwait(false);
+            var status = await connectionController.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            var payload = await payloadInspector.InspectAsync(cancellationToken).ConfigureAwait(false);
+            DiagnosticNetwork network;
+            try
+            {
+                var detected = networkDetector.Detect(settings?.NetworkInterfaceGuid);
+                network = new DiagnosticNetwork(detected.InterfaceName, detected.LocalIpv4Address,
+                    !string.IsNullOrEmpty(detected.GatewayMacAddress), detected.DnsServers);
+            }
+            catch (InvalidOperationException exception)
+            {
+                network = new DiagnosticNetwork(string.Empty, string.Empty, false, [], exception.Message);
+            }
+
+            var logs = paqetAdapter.GetRecentLogs()
+                .Select(entry => (entry.OccurredAt, Text: $"{entry.OccurredAt:HH:mm:ss}  {(entry.IsError ? "ERR" : "INF")}  Paqet · {entry.Message}"))
+                .Concat(xrayAdapter.GetRecentLogs()
+                    .Select(entry => (entry.OccurredAt, Text: $"{entry.OccurredAt:HH:mm:ss}  INF  Xray · {entry.Message}")))
+                .OrderBy(entry => entry.OccurredAt)
+                .Select(entry => entry.Text)
+                .TakeLast(120)
+                .ToArray();
+
+            return DiagnosticBundle.Build(new DiagnosticBundleInput(
+                    settings is null ? null : Normalize(settings),
+                    profileCatalog?.Profiles.Count ?? 0,
+                    status,
+                    status.State == ConnectionState.Connected ? tunnelHealth.Report : TunnelHealthReport.Unknown,
+                    $"{payload.State} · {payload.Detail}",
+                    snapshotMetadata.GetPrerequisites(prerequisiteInspector.Inspect),
+                    network,
+                    latestVerification,
+                    logs,
+                    [settings?.TransportKey, settings?.LanSocksPassword, engineCredentials.Password]),
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private void FlushDnsCache()
+    {
+        if (!WindowsDnsCache.TryFlush())
+        {
+            logger.LogDebug("The Windows DNS cache could not be flushed.");
+        }
+    }
+
+    public async ValueTask RestartTransportAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var status = await connectionController.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            var settings = await LoadActiveSettingsAsync(cancellationToken).ConfigureAwait(false);
+            if (status.State != ConnectionState.Connected || settings is null)
+            {
+                return;
+            }
+
+            // The adapter address, gateway MAC, or server address may have changed under
+            // the stalled carrier; Xray keeps running so placeholder addresses stay valid.
+            await WriteEngineConfigurationsAsync(Normalize(settings), cancellationToken).ConfigureAwait(false);
+            await connectionController.RestartTransportAsync(cancellationToken).ConfigureAwait(false);
+            logger.LogInformation("The Paqet transport was restarted by the tunnel watchdog.");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Paqet resolves a host name once at startup through Windows, whose lookups ProxiFyre
+    /// may be capturing into a route that is not up yet. Hand it an address instead.
+    /// </summary>
+    private async ValueTask<string> ResolveServerEndpointAsync(
+        string endpoint,
+        NetworkEnvironment network,
+        CancellationToken cancellationToken)
+    {
+        var separator = endpoint.LastIndexOf(':');
+        if (endpoint.StartsWith('[') || separator <= 0 || IPAddress.TryParse(endpoint[..separator], out _))
+        {
+            return endpoint;
+        }
+
+        var host = endpoint[..separator];
+        var port = endpoint[(separator + 1)..];
+        var servers = network.DnsServers.Select(IPAddress.Parse).ToArray();
+        var addresses = await DirectDnsResolver.ResolveIpv4Async(host, servers, cancellationToken).ConfigureAwait(false);
+        if (addresses.Count == 0)
+        {
+            try
+            {
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                deadline.CancelAfter(TimeSpan.FromSeconds(3));
+                addresses = await Dns.GetHostAddressesAsync(host, AddressFamily.InterNetwork, deadline.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is SocketException ||
+                                                  exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                addresses = [];
+            }
+        }
+
+        if (addresses.Count > 0)
+        {
+            return lastResolvedServers[host] = $"{addresses[0]}:{port}";
+        }
+
+        if (lastResolvedServers.TryGetValue(host, out var previous))
+        {
+            logger.LogWarning("The server host name could not be resolved; reusing its last known address.");
+            return previous;
+        }
+
+        logger.LogWarning("The server host name could not be resolved; Paqet will resolve it at startup.");
+        return endpoint;
     }
 
     private string CreateProxiFyreConfiguration(PaqetFireSettings settings)
@@ -595,7 +760,8 @@ public sealed class PaqetFireRuntime(
             StatusMessage: message,
             ConnectionState: status.State,
             Verification: latestVerification,
-            ProfileCatalog: profileCatalog is null ? null : ProfileCatalogView.FromCatalog(profileCatalog));
+            ProfileCatalog: profileCatalog is null ? null : ProfileCatalogView.FromCatalog(profileCatalog),
+            Tunnel: status.State == ConnectionState.Connected ? tunnelHealth.Report : null);
     }
 
     private async ValueTask<PaqetFireSettings?> TryLoadSettingsAsync(

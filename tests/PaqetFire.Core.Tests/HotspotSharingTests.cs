@@ -182,6 +182,7 @@ public sealed class HotspotSharingTests
 
         services.AddSingleton(paths);
         services.AddSingleton(EngineSocksCredentials.Generate());
+        services.AddSingleton<TunnelHealthTracker>();
         services.AddSingleton<PayloadIntegrityInspector>();
         services.AddSingleton<PrerequisiteInspector>();
         services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();
@@ -265,6 +266,7 @@ public sealed class HotspotSharingTests
 
         services.AddSingleton(paths);
         services.AddSingleton(EngineSocksCredentials.Generate());
+        services.AddSingleton<TunnelHealthTracker>();
         services.AddSingleton<PayloadIntegrityInspector>();
         services.AddSingleton<PrerequisiteInspector>();
         services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();

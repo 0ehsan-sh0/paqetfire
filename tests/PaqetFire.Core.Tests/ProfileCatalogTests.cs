@@ -98,6 +98,7 @@ public sealed class ProfileCatalogTests
         Assert.Equal(transportSecret, loaded.ActiveProfile.Settings.TransportKey);
         Assert.Equal(sharingSecret, loaded.ActiveProfile.Settings.LanSocksPassword);
         Assert.Equal(XrayDnsResolver.Quad9, loaded.ActiveProfile.Settings.DnsResolver);
+        Assert.True(loaded.ActiveProfile.Settings.FakeDns);
     }
 
     [Fact]
@@ -188,6 +189,7 @@ public sealed class ProfileCatalogTests
         Assert.Equal(settings.SelectedApplications, imported.SelectedApplications);
         Assert.Equal(settings.DirectRouteDestinations, imported.DirectRouteDestinations);
         Assert.Equal(XrayDnsResolver.Quad9, imported.DnsResolver);
+        Assert.True(imported.FakeDns);
         Assert.Equal(settings.ShareViaHotspot, imported.ShareViaHotspot);
         Assert.Empty(imported.LanSocksPassword);
         Assert.Null(imported.NetworkInterfaceGuid);
@@ -271,6 +273,7 @@ public sealed class ProfileCatalogTests
         RegionalPreset = RegionalRoutingPreset.None,
         DomainStrategy = XrayDomainStrategy.AsIs,
         DnsResolver = XrayDnsResolver.Quad9,
+        FakeDns = true,
         BlockAds = false,
         BlockQuic = true,
         DirectBitTorrent = false,

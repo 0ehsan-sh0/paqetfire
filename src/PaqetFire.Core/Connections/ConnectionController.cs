@@ -246,6 +246,35 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         }
     }
 
+    public async ValueTask RestartTransportAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            _transitionState = ConnectionState.Connecting;
+            try
+            {
+                await StopAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
+                await StartAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception error)
+            {
+                throw new ConnectionTransitionException("restart transport", EngineKind.Paqet, error);
+            }
+        }
+        finally
+        {
+            _transitionState = null;
+            _transitionGate.Release();
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)

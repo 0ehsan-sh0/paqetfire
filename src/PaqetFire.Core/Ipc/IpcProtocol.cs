@@ -2,9 +2,9 @@ namespace PaqetFire.Core.Ipc;
 
 public static class IpcProtocol
 {
-    public const int Version = 11;
+    public const int Version = 12;
 
-    public const string PipeName = "PaqetFire.Broker.v11";
+    public const string PipeName = "PaqetFire.Broker.v12";
 
     // Profile import/export messages can contain an escaped copy of the bounded
     // profile document in addition to the normal broker snapshot envelope.

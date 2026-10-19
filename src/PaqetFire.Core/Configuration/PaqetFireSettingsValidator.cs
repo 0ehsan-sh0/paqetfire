@@ -55,6 +55,26 @@ public static class PaqetFireSettingsValidator
             errors.Add("The DNS resolver is invalid.");
         }
 
+        if (settings.FakeDns)
+        {
+            if (settings.DnsResolver == XrayDnsResolver.System)
+            {
+                errors.Add("FakeDNS requires an encrypted DNS resolver.");
+            }
+
+            if (!settings.RouteIpv4)
+            {
+                errors.Add("FakeDNS requires IPv4 routing because its placeholder addresses are IPv4.");
+            }
+
+            // Windows resolves for every process in one shared cache, so excluded
+            // applications would receive placeholders that only work inside the route.
+            if (settings.RoutingMode == RoutingMode.AllApplications && settings.UserExclusions.Count > 0)
+            {
+                errors.Add("FakeDNS cannot be combined with application exclusions in all-applications mode.");
+            }
+        }
+
         if (!settings.RouteTcp && !settings.RouteUdp)
         {
             errors.Add("Select at least one routed protocol: TCP or UDP.");

@@ -119,6 +119,69 @@ public sealed class EncryptedDnsTests
     }
 
     [Fact]
+    public void FakeDnsIssuesIpv4PlaceholdersOnlyForUndirectedLookups()
+    {
+        using var document = Write(Policy(
+            new XrayDnsPolicy(XrayDnsResolver.Cloudflare, ["192.168.1.1"], UseFakeDns: true),
+            RegionalRoutingPreset.IranDirect,
+            lanShare: new LanSocksShare("192.168.1.20", 2082, "family", "correct-horse")));
+        var root = document.RootElement;
+
+        var pool = Assert.Single(root.GetProperty("fakedns").EnumerateArray());
+        Assert.Equal("198.18.0.0/15", pool.GetProperty("ipPool").GetString());
+        var servers = root.GetProperty("dns").GetProperty("servers");
+        Assert.Equal("fakedns", servers[0].GetString());
+        Assert.Equal("https://1.1.1.1/dns-query", servers[1].GetProperty("address").GetString());
+        Assert.True(servers[3].GetProperty("skipFallback").GetBoolean());
+        foreach (var inbound in root.GetProperty("inbounds").EnumerateArray())
+        {
+            Assert.Equal(["http", "tls", "quic", "fakedns"], Strings(inbound.GetProperty("sniffing").GetProperty("destOverride")));
+        }
+    }
+
+    [Fact]
+    public void FakeDnsIsOffByDefault()
+    {
+        using var document = Write(Policy(new XrayDnsPolicy(XrayDnsResolver.Cloudflare, [])));
+
+        Assert.False(document.RootElement.TryGetProperty("fakedns", out _));
+        Assert.DoesNotContain("\"fakedns\"", document.RootElement.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(XrayDnsResolver.System, true)]
+    [InlineData(XrayDnsResolver.Cloudflare, false)]
+    public void FakeDnsRequiresEncryptedDnsAndIpv4(XrayDnsResolver resolver, bool ipv4)
+    {
+        Assert.Throws<ConfigurationValidationException>(() => new XrayJsonConfigurationWriter().Write(
+            Policy(new XrayDnsPolicy(resolver, [], ResolveIpv4: ipv4, UseFakeDns: true))));
+    }
+
+    [Fact]
+    public void FakeDnsSettingsRejectCombinationsWherePlaceholdersEscapeTheRoute()
+    {
+        var valid = new PaqetFireSettings { ServerEndpoint = "server.example:8443", TransportKey = "secret", FakeDns = true };
+        Assert.Empty(PaqetFireSettingsValidator.Validate(valid));
+
+        foreach (var invalid in new[]
+                 {
+                     valid with { DnsResolver = XrayDnsResolver.System },
+                     valid with { RouteIpv4 = false },
+                     valid with { UserExclusions = ["game.exe"] },
+                 })
+        {
+            Assert.Contains(PaqetFireSettingsValidator.Validate(invalid), error => error.Contains("FakeDNS", StringComparison.Ordinal));
+        }
+
+        Assert.Empty(PaqetFireSettingsValidator.Validate(valid with
+        {
+            RoutingMode = PaqetFire.Core.Routing.RoutingMode.SelectedApplications,
+            SelectedApplications = ["browser.exe"],
+            UserExclusions = ["game.exe"],
+        }));
+    }
+
+    [Fact]
     public void EngineCredentialsProtectBothLoopbackSocksHops()
     {
         using var document = Write(Policy(dns: null) with { EngineCredentials = Credentials });

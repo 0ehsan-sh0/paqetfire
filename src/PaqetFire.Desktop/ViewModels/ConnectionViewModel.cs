@@ -9,6 +9,7 @@ using PaqetFire.Core.Profiles;
 using PaqetFire.Desktop.Ipc;
 using PaqetFire.Desktop.Presentation;
 using CoreConnectionState = PaqetFire.Core.Connections.ConnectionState;
+using TunnelHealthState = PaqetFire.Core.Connections.TunnelHealthState;
 
 namespace PaqetFire.Desktop.ViewModels;
 
@@ -38,6 +39,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
     private string? errorMessage;
     private string? lastActivitySummary;
     private bool isBusy;
+    private bool isTunnelStalled;
     private bool disposed;
     private CancellationTokenSource? livePolling;
 
@@ -73,6 +75,13 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
                 UpdateLivePolling();
             }
         }
+    }
+
+    /// <summary>The engines run, but the watchdog cannot reach the internet through Paqet.</summary>
+    public bool IsTunnelStalled
+    {
+        get => isTunnelStalled;
+        private set => SetProperty(ref isTunnelStalled, value);
     }
 
     public string StatusText
@@ -592,6 +601,20 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
     }
 
+    public async Task<string?> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await brokerClient.OpenAsync(ConnectTimeout, cancellationToken).ConfigureAwait(false);
+            return await brokerClient.GetDiagnosticsAsync(LifecycleRequestTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await UpdateUiAsync(() => ApplyTransportFailure(exception)).ConfigureAwait(false);
+            return null;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (disposed)
@@ -670,6 +693,8 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         ErrorMessage = null;
 
         var runningCount = snapshot.Engines.Count(engine => engine.State == EngineState.Running);
+        IsTunnelStalled = snapshot.IsRouting &&
+            snapshot.Tunnel?.State is TunnelHealthState.Stalled or TunnelHealthState.Recovering;
         var engineSummary = runningCount switch
         {
             0 => "No engines running",
@@ -783,6 +808,18 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
             StateLabel = "DISCONNECTING";
             StatusText = $"Disconnecting · {engineSummary}";
             StatusDescription = "Stopping application routing before the carrier.";
+        }
+        else if (snapshot.IsRouting && runningCount == snapshot.Engines.Count &&
+                 snapshot.Tunnel?.State is TunnelHealthState.Stalled or TunnelHealthState.Recovering)
+        {
+            ConnectionState = BrokerConnectionState.Connected;
+            StateLabel = "TUNNEL NOT RESPONDING";
+            StatusText = snapshot.Tunnel.State == TunnelHealthState.Recovering
+                ? "Restarting the Paqet transport"
+                : "Waiting for the Paqet server";
+            StatusDescription = snapshot.Tunnel.LastSuccessAt is { } lastSuccess
+                ? $"No traffic has passed through Paqet since {lastSuccess.ToLocalTime():HH:mm:ss}. PaqetFire restarts the transport automatically; routed traffic stays on the route meanwhile."
+                : "Paqet is running but its server has not answered yet. PaqetFire restarts the transport automatically; routed traffic stays on the route meanwhile.";
         }
         else if (snapshot.IsRouting && runningCount == snapshot.Engines.Count)
         {

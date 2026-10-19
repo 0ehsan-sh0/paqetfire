@@ -72,6 +72,11 @@ public sealed class ConfigurationActivationTests
         public Exception? ConnectError { get; init; }
         public CancellationToken LastGuardToken { get; private set; }
         public ValueTask<ConnectionStatus> GetStatusAsync(CancellationToken token) => throw new NotSupportedException();
+        public ValueTask RestartTransportAsync(CancellationToken token)
+        {
+            Calls.Add("restart-transport");
+            return ValueTask.CompletedTask;
+        }
         public ValueTask DisconnectAsync(CancellationToken token)
         {
             Calls.Add("disconnect");

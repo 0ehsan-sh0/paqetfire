@@ -55,7 +55,25 @@ the broker's engine credentials, generated once and stored DPAPI-protected in
 `%ProgramData%\PaqetFire\engine-credentials.json`; Xray's Paqet outbound, the
 live-statistics probe, and ProxiFyre's link to Xray use the same credentials.
 The readiness probe offers both no-auth and username/password so it only checks
-that a SOCKS5 server answers. Optional low-level
+that a SOCKS5 server answers.
+
+A server host name is resolved by the broker before Paqet starts, with a direct
+query to the adapter's resolvers from the broker's own socket, then the Windows
+resolver, then the last address that worked. Paqet resolves a host name once at
+startup through Windows, whose lookups ProxiFyre may be capturing into a route
+that is not up yet, as during a transport restart or a kill-switch guard.
+
+## Tunnel watchdog
+
+Paqet keeps running and retrying when its server stops answering, so process
+state alone would report a dead route as connected. While connected, the broker
+sends a HEAD request on a fresh SOCKS stream through Paqet every 10 seconds, to
+`cp.cloudflare.com` and `connectivitycheck.gstatic.com` in parallel. After three
+consecutive failures the snapshot reports the tunnel as stalled. The broker then
+re-detects the network, rewrites the engine configurations, and restarts Paqet
+only, with backoff doubling from 30 seconds to 5 minutes. Xray and ProxiFyre keep
+running, so routed traffic fails closed rather than going direct, and FakeDNS
+placeholders stay valid. One success resets the backoff. Optional low-level
 port-forward rules remain a writer capability, separate from packet tuning.
 The obsolete `transport.tcpbuf` and `transport.udpbuf` fields are no longer
 written: they do not exist in alpha.21. See the [upstream option audit](paqet-options-research.md)

@@ -32,6 +32,7 @@ internal sealed record PortableConnectionProfile
             RegionalPreset = profile.Settings.RegionalPreset,
             DomainStrategy = profile.Settings.DomainStrategy,
             DnsResolver = profile.Settings.DnsResolver,
+            FakeDns = profile.Settings.FakeDns,
             DirectRouteDestinations = profile.Settings.DirectRouteDestinations,
             BypassLan = profile.Settings.BypassLan,
             BlockAds = profile.Settings.BlockAds,
@@ -76,6 +77,7 @@ internal sealed record PortableConnectionProfile
             RegionalPreset = Xray.RegionalPreset,
             DomainStrategy = Xray.DomainStrategy,
             DnsResolver = Xray.DnsResolver,
+            FakeDns = Xray.FakeDns,
             DirectRouteDestinations = Xray.DirectRouteDestinations,
             BypassLan = Xray.BypassLan,
             BlockAds = Xray.BlockAds,
@@ -112,6 +114,7 @@ internal sealed record PortableXraySettings
     public RegionalRoutingPreset RegionalPreset { get; init; } = RegionalRoutingPreset.IranDirect;
     public XrayDomainStrategy DomainStrategy { get; init; } = XrayDomainStrategy.IPIfNonMatch;
     public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
+    public bool FakeDns { get; init; }
     public IReadOnlyList<string> DirectRouteDestinations { get; init; } = [];
     public bool BypassLan { get; init; } = false;
     public bool BlockAds { get; init; } = true;

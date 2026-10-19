@@ -39,4 +39,6 @@ public interface IBrokerClient
     ValueTask<string> ExportProfilesAsync(TimeSpan timeout, CancellationToken cancellationToken);
 
     ValueTask<LiveConnectionStats> GetLiveStatsAsync(TimeSpan timeout, CancellationToken cancellationToken);
+
+    ValueTask<string> GetDiagnosticsAsync(TimeSpan timeout, CancellationToken cancellationToken);
 }

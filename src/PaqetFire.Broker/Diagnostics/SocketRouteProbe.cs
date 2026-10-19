@@ -4,16 +4,22 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using PaqetFire.Broker.Network;
 using PaqetFire.Core.Configuration;
 
 namespace PaqetFire.Broker.Diagnostics;
 
-public sealed class SocketRouteProbe(EngineSocksCredentials credentials) : IRouteProbe
+public sealed class SocketRouteProbe(EngineSocksCredentials credentials, IPEndPoint? xrayEndpoint = null) : IRouteProbe
 {
-    private static readonly IPEndPoint XrayEndpoint = new(IPAddress.Loopback, 1081);
+    private readonly IPEndPoint routeEndpoint = xrayEndpoint ?? new(IPAddress.Loopback, XrayJsonConfigurationWriter.InboundPort);
     private static readonly Uri Ipv4CheckUri = new("https://api4.ipify.org");
     private static readonly Uri Ipv6CheckUri = new("https://api6.ipify.org");
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(8);
+
+    // Akamai's authoritative servers answer this name with the address of the resolver
+    // that asked, which identifies where a lookup really left from.
+    private const string ResolverIdentityName = "whoami.akamai.net";
+    private static readonly IPNetwork FakeDnsPool = IPNetwork.Parse(XrayJsonConfigurationWriter.FakeDnsIpv4Pool);
 
     public async ValueTask<RouteProbeResult> CheckLocalRouteAsync(CancellationToken cancellationToken)
     {
@@ -22,7 +28,7 @@ public sealed class SocketRouteProbe(EngineSocksCredentials credentials) : IRout
         {
             using var deadline = CreateDeadline(cancellationToken);
             using var client = new TcpClient(AddressFamily.InterNetwork);
-            await client.ConnectAsync(XrayEndpoint, deadline.Token).ConfigureAwait(false);
+            await client.ConnectAsync(routeEndpoint, deadline.Token).ConfigureAwait(false);
             var stream = client.GetStream();
             await NegotiateAsync(stream, deadline.Token).ConfigureAwait(false);
             return Success("The local Xray SOCKS5 listener accepted a protocol handshake.", stopwatch);
@@ -46,7 +52,7 @@ public sealed class SocketRouteProbe(EngineSocksCredentials credentials) : IRout
         {
             using var deadline = CreateDeadline(cancellationToken);
             using var control = new TcpClient(AddressFamily.InterNetwork);
-            await control.ConnectAsync(XrayEndpoint, deadline.Token).ConfigureAwait(false);
+            await control.ConnectAsync(routeEndpoint, deadline.Token).ConfigureAwait(false);
             var stream = control.GetStream();
             await NegotiateAsync(stream, deadline.Token).ConfigureAwait(false);
             var relayEndpoint = await RequestUdpRelayAsync(stream, deadline.Token).ConfigureAwait(false);
@@ -74,6 +80,89 @@ public sealed class SocketRouteProbe(EngineSocksCredentials credentials) : IRout
         }
     }
 
+    public async ValueTask<RouteProbeResult> CheckDnsLeakAsync(
+        IReadOnlyList<IPAddress> networkResolvers,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var networkResolver = networkResolvers.FirstOrDefault(address => address.AddressFamily == AddressFamily.InterNetwork);
+        IReadOnlyList<IPAddress> routed;
+        try
+        {
+            // Address the query to the network's resolver, as Windows does, so the result
+            // shows whether Xray intercepts it or lets it out to that resolver.
+            routed = await QueryThroughRouteAsync(
+                    networkResolver ?? IPAddress.Parse("1.1.1.1"),
+                    ResolverIdentityName,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (IsProbeFailure(exception, cancellationToken))
+        {
+            routed = [];
+        }
+
+        if (routed.Count == 0)
+        {
+            return Failure("No answer arrived for a resolver identity lookup through the route.", stopwatch, available: false);
+        }
+
+        var routedResolver = routed[0];
+        if (FakeDnsPool.Contains(routedResolver))
+        {
+            return new RouteProbeResult(true,
+                "FakeDNS answered the lookup inside Xray; the real lookup happens on the Paqet server.",
+                stopwatch.ElapsedMilliseconds, routedResolver.ToString());
+        }
+
+        var direct = networkResolver is null
+            ? []
+            : await DirectDnsResolver.QueryAsync(networkResolver, ResolverIdentityName, 1, cancellationToken).ConfigureAwait(false);
+        if (direct.Count == 0)
+        {
+            return new RouteProbeResult(true,
+                $"Lookups through the route are resolved by {routedResolver}; this network's resolver did not answer for comparison.",
+                stopwatch.ElapsedMilliseconds, routedResolver.ToString());
+        }
+
+        return direct.Contains(routedResolver)
+            ? new RouteProbeResult(false,
+                $"Lookups through the route reach the same resolver as direct lookups ({routedResolver}), so this network can see them. Choose an encrypted DNS resolver.",
+                stopwatch.ElapsedMilliseconds, routedResolver.ToString())
+            : new RouteProbeResult(true,
+                $"Lookups through the route are resolved by {routedResolver}, not by this network's resolver ({direct[0]}).",
+                stopwatch.ElapsedMilliseconds, routedResolver.ToString());
+    }
+
+    private async ValueTask<IReadOnlyList<IPAddress>> QueryThroughRouteAsync(
+        IPAddress server,
+        string host,
+        CancellationToken cancellationToken)
+    {
+        using var deadline = CreateDeadline(cancellationToken);
+        using var control = new TcpClient(AddressFamily.InterNetwork);
+        await control.ConnectAsync(routeEndpoint, deadline.Token).ConfigureAwait(false);
+        var stream = control.GetStream();
+        await NegotiateAsync(stream, deadline.Token).ConfigureAwait(false);
+        var relayEndpoint = await RequestUdpRelayAsync(stream, deadline.Token).ConfigureAwait(false);
+
+        using var udp = new UdpClient(AddressFamily.InterNetwork);
+        udp.Connect(relayEndpoint);
+        var id = (ushort)RandomNumberGenerator.GetInt32(ushort.MaxValue + 1);
+        await udp.SendAsync(CreateSocksUdpPacket(server, 53, DirectDnsResolver.CreateQuery(id, host, 1)), deadline.Token)
+            .ConfigureAwait(false);
+        while (true)
+        {
+            var received = (await udp.ReceiveAsync(deadline.Token).ConfigureAwait(false)).Buffer;
+            var headerLength = received.Length > 4 ? received[3] switch { 0x01 => 10, 0x04 => 22, _ => -1 } : -1;
+            if (headerLength > 0 && received.Length > headerLength &&
+                DirectDnsResolver.TryReadAddresses(received.AsSpan(headerLength), id, out var addresses))
+            {
+                return addresses;
+            }
+        }
+    }
+
     private async ValueTask<RouteProbeResult> CheckPublicAddressAsync(
         Uri endpoint,
         AddressFamily expectedFamily,
@@ -86,7 +175,7 @@ public sealed class SocketRouteProbe(EngineSocksCredentials credentials) : IRout
             using var deadline = CreateDeadline(cancellationToken);
             using var handler = new SocketsHttpHandler
             {
-                Proxy = new WebProxy(new Uri($"socks5://{XrayEndpoint.Address}:{XrayEndpoint.Port}"))
+                Proxy = new WebProxy(new Uri($"socks5://{routeEndpoint.Address}:{routeEndpoint.Port}"))
                 {
                     Credentials = new NetworkCredential(credentials.Username, credentials.Password),
                 },

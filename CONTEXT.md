@@ -56,6 +56,14 @@ _Avoid_: Secure DNS, DNS proxy, DNS leak protection
 The machine-generated username and password that authenticate the loopback SOCKS5 hops between ProxiFyre, Xray, and Paqet.
 _Avoid_: Shared proxy credentials, local password
 
+**Tunnel watchdog**:
+The broker loop that probes the Paqet carrier while connected and restarts the transport when it stays unreachable.
+_Avoid_: Health monitor, keepalive
+
+**Diagnostic report**:
+The redacted plain-text summary copied from Diagnostics for bug reports.
+_Avoid_: Log dump, support bundle
+
 **Local network bypass**:
 Routing policy directive that routes local subnet and private IP traffic directly rather than capturing it into PaqetFire, required for hotspot sharing and LAN device reachability.
 _Avoid_: LAN exclusion, local whitelist

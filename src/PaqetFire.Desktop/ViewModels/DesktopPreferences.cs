@@ -37,6 +37,8 @@ public sealed class DesktopPreferences
 
     public XrayDnsResolver DnsResolver { get; set; } = XrayDnsResolver.Cloudflare;
 
+    public bool FakeDns { get; set; }
+
     public bool BlockAds { get; set; } = true;
 
     public bool BlockQuic { get; set; }

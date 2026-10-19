@@ -9,4 +9,7 @@ public interface IConnectionController
     ValueTask GuardAsync(CancellationToken cancellationToken);
 
     ValueTask DisconnectAsync(CancellationToken cancellationToken);
+
+    /// <summary>Restarts only Paqet; Xray and ProxiFyre keep capturing, so traffic fails closed meanwhile.</summary>
+    ValueTask RestartTransportAsync(CancellationToken cancellationToken);
 }

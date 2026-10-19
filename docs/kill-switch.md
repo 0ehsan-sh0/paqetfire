@@ -22,6 +22,16 @@ The setting is off by default. Turning it off and saving the routing policy
 stops ProxiFyre when disconnected. Turning it on and saving arms the guarded
 state immediately.
 
+## Broker failures
+
+Paqet and Xray run in a kill-on-close Windows job owned by the broker, so a
+broker crash cannot leave either holding its loopback port or the carrier open.
+ProxiFyre stays outside the job: with the kill switch on, it keeps routed
+applications pointed at the stopped Xray listener, so they fail closed. The
+service restarts five seconds after a failure. At startup the broker stops any
+engine still running from its installed paths, then re-arms the guard if the
+kill switch is enabled.
+
 ## Local network access
 
 `Direct access — bypass PaqetFire` keeps private/LAN destinations outside the

@@ -175,6 +175,19 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
             throw new InvalidDataException("The broker live statistics response was empty.");
     }
 
+    public async ValueTask<string> GetDiagnosticsAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var response = await SendResponseAsync(
+                BrokerCommand.GetDiagnostics,
+                timeout,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return response.Diagnostics ??
+            throw new InvalidDataException("The broker diagnostics response was empty.");
+    }
+
     private async ValueTask<BrokerSnapshot> SendAsync(
         BrokerCommand command,
         TimeSpan timeout,

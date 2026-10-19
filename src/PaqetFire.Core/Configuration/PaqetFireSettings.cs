@@ -38,6 +38,8 @@ public sealed record PaqetFireSettings
 
     public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
 
+    public bool FakeDns { get; init; }
+
     public bool BlockAds { get; init; } = true;
 
     public bool BlockQuic { get; init; }
@@ -100,6 +102,8 @@ public sealed record PaqetFireSettingsView(
 
     public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
 
+    public bool FakeDns { get; init; }
+
     public static PaqetFireSettingsView FromSettings(PaqetFireSettings settings) => new(
         settings.ProfileName,
         settings.ServerEndpoint,
@@ -132,6 +136,7 @@ public sealed record PaqetFireSettingsView(
         NetworkInterfaceGuid = settings.NetworkInterfaceGuid,
         Advanced = settings.Advanced,
         DnsResolver = settings.DnsResolver,
+        FakeDns = settings.FakeDns,
     };
 }
 
@@ -175,7 +180,8 @@ public sealed record XrayDnsPolicy(
     XrayDnsResolver Resolver,
     IReadOnlyList<string> DomesticServers,
     bool ResolveIpv4 = true,
-    bool ResolveIpv6 = true);
+    bool ResolveIpv6 = true,
+    bool UseFakeDns = false);
 
 public sealed record LanSocksShare(
     string ListenAddress,
