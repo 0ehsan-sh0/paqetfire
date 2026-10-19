@@ -22,6 +22,37 @@ ProxiFyre always excludes the full installed paths of Paqet, Xray, ProxiFyre,
 and the broker. Xray's direct and Paqet-bound sockets therefore cannot re-enter
 the application redirector and form a loop.
 
+Both loopback SOCKS5 hops require the broker's engine credentials, so other
+local processes cannot open TCP connections through the route. Xray's UDP relay
+does not authenticate individual datagrams; that is an upstream limitation.
+
+## DNS
+
+New profiles answer DNS inside Xray instead of the Windows resolver. The
+resolver is selectable: Cloudflare (default), Google, Quad9, or System, which
+keeps the previous behavior.
+
+- Port 53 traffic from the ProxiFyre, LAN, and hotspot inbounds goes to a
+  `dns` outbound. A and AAAA queries are answered by Xray's DNS module. Other
+  query types (SRV, TXT, MX, HTTPS) are forwarded as plain DNS to the
+  provider's resolver through Paqet, so they are never visible locally.
+- The DNS module queries the provider over DNS-over-HTTPS at IP-literal
+  endpoints, so no bootstrap lookup is needed, through the Paqet outbound.
+- `geosite:private`, `geosite:category-ir` with the Iran preset, and custom
+  direct domains use the active adapter's IPv4 DNS servers directly. These
+  destinations already connect directly, and local answers keep Iranian CDN
+  edges and LAN names working. Without a detected adapter resolver, they use
+  DNS-over-HTTPS as well.
+- Resolver rules come first, so user direct-IP or regional rules can never
+  divert a DoH or domestic query.
+- The direct outbound resolves through the same module (`UseIP`), and the query
+  strategy drops unrouted address families: IPv4-only routing returns no AAAA
+  records, so applications are not steered onto an uncaptured IPv6 path.
+
+Lookups outside the route are not covered: applications not selected in
+selected-applications mode (Windows resolves for them in `svchost.exe`), and
+queries to a LAN resolver while ProxiFyre's local network bypass is on.
+
 ## Default policy
 
 - `geosite:private` and `geoip:private` go direct when LAN bypass is enabled.

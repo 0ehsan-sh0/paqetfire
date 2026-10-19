@@ -1165,10 +1165,26 @@ public sealed partial class MainWindow : Window
         updatingProfileSelection = false;
     }
 
+    private XrayDnsResolver SelectedDnsResolver() => DnsResolverBox.SelectedIndex switch
+    {
+        1 => XrayDnsResolver.Google,
+        2 => XrayDnsResolver.Quad9,
+        3 => XrayDnsResolver.System,
+        _ => XrayDnsResolver.Cloudflare,
+    };
+
+    private void SelectDnsResolver(XrayDnsResolver resolver) => DnsResolverBox.SelectedIndex = resolver switch
+    {
+        XrayDnsResolver.Google => 1,
+        XrayDnsResolver.Quad9 => 2,
+        XrayDnsResolver.System => 3,
+        _ => 0,
+    };
+
     private IEnumerable<Control> ConfigurationControls() =>
         new Control[] { ProfileNameBox, ServerEndpointBox, TransportKeyBox, KcpModeBox, NetworkInterfaceBox, DetectAdapterButton,
             LocalFlagsBox, RemoteFlagsBox, RoutingModeButtons, SelectedApplicationsBox,
-            UserExclusionsBox, BypassLanSwitch, RegionalPresetBox, DomainStrategyBox,
+            UserExclusionsBox, BypassLanSwitch, RegionalPresetBox, DomainStrategyBox, DnsResolverBox,
             DirectRouteDestinationsBox,
             BlockAdsSwitch, BlockQuicSwitch, DirectBitTorrentSwitch, KillSwitchToggle,
             ShareWithLanSwitch, LanSharePortBox,
@@ -1249,6 +1265,7 @@ public sealed partial class MainWindow : Window
                 var m when m.Contains("address family") => RouteIpv4CheckBox,
                 var m when m.Contains("regional") => RegionalPresetBox,
                 var m when m.Contains("domain strategy") => DomainStrategyBox,
+                var m when m.Contains("DNS resolver") => DnsResolverBox,
                 _ => (Control)RoutingModeButtons,
             };
             first ??= control;
@@ -1618,6 +1635,7 @@ public sealed partial class MainWindow : Window
                 2 => XrayDomainStrategy.IPOnDemand,
                 _ => XrayDomainStrategy.IPIfNonMatch,
             },
+            DnsResolver = SelectedDnsResolver(),
             BlockAds = BlockAdsSwitch.IsOn,
             BlockQuic = BlockQuicSwitch.IsOn,
             DirectBitTorrent = DirectBitTorrentSwitch.IsOn,
@@ -1687,6 +1705,7 @@ public sealed partial class MainWindow : Window
             XrayDomainStrategy.IPOnDemand => 2,
             _ => 1,
         };
+        SelectDnsResolver(source.DnsResolver);
         BlockAdsSwitch.IsOn = source.BlockAds;
         BlockQuicSwitch.IsOn = source.BlockQuic;
         DirectBitTorrentSwitch.IsOn = source.DirectBitTorrent;
@@ -1750,6 +1769,7 @@ public sealed partial class MainWindow : Window
             2 => XrayDomainStrategy.IPOnDemand,
             _ => XrayDomainStrategy.IPIfNonMatch,
         };
+        preferences.DnsResolver = SelectedDnsResolver();
         preferences.BlockAds = BlockAdsSwitch.IsOn;
         preferences.BlockQuic = BlockQuicSwitch.IsOn;
         preferences.DirectBitTorrent = DirectBitTorrentSwitch.IsOn;
@@ -1875,6 +1895,7 @@ public sealed partial class MainWindow : Window
                 XrayDomainStrategy.IPOnDemand => 2,
                 _ => 1,
             };
+            SelectDnsResolver(settings.DnsResolver);
             BlockAdsSwitch.IsOn = settings.BlockAds;
             BlockQuicSwitch.IsOn = settings.BlockQuic;
             DirectBitTorrentSwitch.IsOn = settings.DirectBitTorrent;

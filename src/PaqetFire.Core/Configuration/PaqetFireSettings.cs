@@ -36,6 +36,8 @@ public sealed record PaqetFireSettings
 
     public XrayDomainStrategy DomainStrategy { get; init; } = XrayDomainStrategy.IPIfNonMatch;
 
+    public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
+
     public bool BlockAds { get; init; } = true;
 
     public bool BlockQuic { get; init; }
@@ -96,6 +98,8 @@ public sealed record PaqetFireSettingsView(
 
     public Guid? NetworkInterfaceGuid { get; init; }
 
+    public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
+
     public static PaqetFireSettingsView FromSettings(PaqetFireSettings settings) => new(
         settings.ProfileName,
         settings.ServerEndpoint,
@@ -127,6 +131,7 @@ public sealed record PaqetFireSettingsView(
     {
         NetworkInterfaceGuid = settings.NetworkInterfaceGuid,
         Advanced = settings.Advanced,
+        DnsResolver = settings.DnsResolver,
     };
 }
 
@@ -143,6 +148,15 @@ public enum XrayDomainStrategy
     IPOnDemand,
 }
 
+/// <summary>System leaves lookups to the Windows resolver; the others answer captured DNS inside Xray.</summary>
+public enum XrayDnsResolver
+{
+    System,
+    Cloudflare,
+    Google,
+    Quad9,
+}
+
 public sealed record XrayRoutingPolicy(
     RegionalRoutingPreset RegionalPreset,
     XrayDomainStrategy DomainStrategy,
@@ -152,7 +166,16 @@ public sealed record XrayRoutingPolicy(
     bool DirectBitTorrent,
     LanSocksShare? LanShare = null,
     LanSocksShare? HotspotShare = null,
-    IReadOnlyList<string>? DirectRouteDestinations = null);
+    IReadOnlyList<string>? DirectRouteDestinations = null,
+    XrayDnsPolicy? Dns = null,
+    EngineSocksCredentials? EngineCredentials = null);
+
+/// <param name="DomesticServers">IPv4 resolvers of the active network, used directly for local and direct-routed domains.</param>
+public sealed record XrayDnsPolicy(
+    XrayDnsResolver Resolver,
+    IReadOnlyList<string> DomesticServers,
+    bool ResolveIpv4 = true,
+    bool ResolveIpv6 = true);
 
 public sealed record LanSocksShare(
     string ListenAddress,

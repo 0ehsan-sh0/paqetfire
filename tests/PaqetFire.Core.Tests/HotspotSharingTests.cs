@@ -181,6 +181,7 @@ public sealed class HotspotSharingTests
             Path.Combine(tempDir, "s.json"));
 
         services.AddSingleton(paths);
+        services.AddSingleton(EngineSocksCredentials.Generate());
         services.AddSingleton<PayloadIntegrityInspector>();
         services.AddSingleton<PrerequisiteInspector>();
         services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();
@@ -263,6 +264,7 @@ public sealed class HotspotSharingTests
             Path.Combine(tempDir, "s.json"));
 
         services.AddSingleton(paths);
+        services.AddSingleton(EngineSocksCredentials.Generate());
         services.AddSingleton<PayloadIntegrityInspector>();
         services.AddSingleton<PrerequisiteInspector>();
         services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();

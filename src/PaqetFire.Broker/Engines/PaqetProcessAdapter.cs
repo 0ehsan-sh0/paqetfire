@@ -348,12 +348,14 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
         await client.ConnectAsync(endpoint.Address, endpoint.Port, cancellationToken).ConfigureAwait(false);
 
         await using var stream = client.GetStream();
-        var greeting = new byte[] { 0x05, 0x01, 0x00 };
+        // Readiness only needs a SOCKS5 method selection, so offer both no-auth and
+        // username/password instead of handling the engine credentials here.
+        var greeting = new byte[] { 0x05, 0x02, 0x00, 0x02 };
         await stream.WriteAsync(greeting, cancellationToken).ConfigureAwait(false);
 
         var response = new byte[2];
         await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
-        return response[0] == 0x05 && response[1] == 0x00;
+        return response[0] == 0x05 && response[1] is 0x00 or 0x02;
     }
 
     private static async ValueTask<bool> IsEndpointOccupiedAsync(

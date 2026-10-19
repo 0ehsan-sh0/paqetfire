@@ -50,6 +50,11 @@ public static class PaqetFireSettingsValidator
             errors.Add("The Xray domain strategy is invalid.");
         }
 
+        if (!Enum.IsDefined(settings.DnsResolver))
+        {
+            errors.Add("The DNS resolver is invalid.");
+        }
+
         if (!settings.RouteTcp && !settings.RouteUdp)
         {
             errors.Add("Select at least one routed protocol: TCP or UDP.");

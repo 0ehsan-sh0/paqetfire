@@ -3,10 +3,12 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text;
+using PaqetFire.Core.Configuration;
 
 namespace PaqetFire.Broker.Diagnostics;
 
-public sealed class SocketRouteProbe : IRouteProbe
+public sealed class SocketRouteProbe(EngineSocksCredentials credentials) : IRouteProbe
 {
     private static readonly IPEndPoint XrayEndpoint = new(IPAddress.Loopback, 1081);
     private static readonly Uri Ipv4CheckUri = new("https://api4.ipify.org");
@@ -22,7 +24,7 @@ public sealed class SocketRouteProbe : IRouteProbe
             using var client = new TcpClient(AddressFamily.InterNetwork);
             await client.ConnectAsync(XrayEndpoint, deadline.Token).ConfigureAwait(false);
             var stream = client.GetStream();
-            await NegotiateNoAuthenticationAsync(stream, deadline.Token).ConfigureAwait(false);
+            await NegotiateAsync(stream, deadline.Token).ConfigureAwait(false);
             return Success("The local Xray SOCKS5 listener accepted a protocol handshake.", stopwatch);
         }
         catch (Exception exception) when (IsProbeFailure(exception, cancellationToken))
@@ -46,7 +48,7 @@ public sealed class SocketRouteProbe : IRouteProbe
             using var control = new TcpClient(AddressFamily.InterNetwork);
             await control.ConnectAsync(XrayEndpoint, deadline.Token).ConfigureAwait(false);
             var stream = control.GetStream();
-            await NegotiateNoAuthenticationAsync(stream, deadline.Token).ConfigureAwait(false);
+            await NegotiateAsync(stream, deadline.Token).ConfigureAwait(false);
             var relayEndpoint = await RequestUdpRelayAsync(stream, deadline.Token).ConfigureAwait(false);
 
             using var udp = new UdpClient(AddressFamily.InterNetwork);
@@ -72,7 +74,7 @@ public sealed class SocketRouteProbe : IRouteProbe
         }
     }
 
-    private static async ValueTask<RouteProbeResult> CheckPublicAddressAsync(
+    private async ValueTask<RouteProbeResult> CheckPublicAddressAsync(
         Uri endpoint,
         AddressFamily expectedFamily,
         string familyName,
@@ -84,7 +86,10 @@ public sealed class SocketRouteProbe : IRouteProbe
             using var deadline = CreateDeadline(cancellationToken);
             using var handler = new SocketsHttpHandler
             {
-                Proxy = new WebProxy(new Uri($"socks5://{XrayEndpoint.Address}:{XrayEndpoint.Port}")),
+                Proxy = new WebProxy(new Uri($"socks5://{XrayEndpoint.Address}:{XrayEndpoint.Port}"))
+                {
+                    Credentials = new NetworkCredential(credentials.Username, credentials.Password),
+                },
                 UseProxy = true,
                 ConnectTimeout = ProbeTimeout,
             };
@@ -115,16 +120,32 @@ public sealed class SocketRouteProbe : IRouteProbe
         }
     }
 
-    private static async ValueTask NegotiateNoAuthenticationAsync(
+    private async ValueTask NegotiateAsync(
         NetworkStream stream,
         CancellationToken cancellationToken)
     {
-        await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x02 }, cancellationToken).ConfigureAwait(false);
         var response = new byte[2];
         await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
-        if (response[0] != 0x05 || response[1] != 0x00)
+        if (response[0] != 0x05 || response[1] != 0x02)
         {
             throw new IOException("The Xray listener rejected the SOCKS5 handshake.");
+        }
+
+        // RFC 1929 username/password subnegotiation.
+        var username = Encoding.UTF8.GetBytes(credentials.Username);
+        var password = Encoding.UTF8.GetBytes(credentials.Password);
+        var request = new byte[3 + username.Length + password.Length];
+        request[0] = 0x01;
+        request[1] = (byte)username.Length;
+        username.CopyTo(request, 2);
+        request[2 + username.Length] = (byte)password.Length;
+        password.CopyTo(request, 3 + username.Length);
+        await stream.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+        await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
+        if (response[0] != 0x01 || response[1] != 0x00)
+        {
+            throw new IOException("The Xray listener rejected the engine credentials.");
         }
     }
 

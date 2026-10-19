@@ -183,6 +183,7 @@ public sealed class BrokerWorker(
                previous.RouteIpv6 == current.RouteIpv6 &&
                previous.RegionalPreset == current.RegionalPreset &&
                previous.DomainStrategy == current.DomainStrategy &&
+               previous.DnsResolver == current.DnsResolver &&
                previous.BlockAds == current.BlockAds &&
                previous.BlockQuic == current.BlockQuic &&
                previous.DirectBitTorrent == current.DirectBitTorrent &&

@@ -10,7 +10,10 @@ public sealed record NetworkAdapterDetails(
     string InterfaceName,
     IPAddress LocalAddress,
     IPAddress Gateway,
-    NetworkInterfaceType Type);
+    NetworkInterfaceType Type)
+{
+    public IReadOnlyList<IPAddress> DnsServers { get; init; } = [];
+}
 
 public sealed record DetectedNetworkAdapter(NetworkAdapterDetails Adapter, string? RouterMac);
 
@@ -76,7 +79,10 @@ public sealed class NetworkAdapterDetector
                 var gateway = properties.GatewayAddresses.Select(value => value.Address)
                     .FirstOrDefault(IsUsableIpv4);
                 if (local is not null && gateway is not null)
-                    adapters.Add(new(guid, networkInterface.Name, local, gateway, networkInterface.NetworkInterfaceType));
+                    adapters.Add(new(guid, networkInterface.Name, local, gateway, networkInterface.NetworkInterfaceType)
+                    {
+                        DnsServers = properties.DnsAddresses.Where(IsUsableIpv4).ToArray(),
+                    });
             }
             catch (NetworkInformationException)
             {

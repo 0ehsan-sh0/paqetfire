@@ -48,6 +48,14 @@ _Avoid_: Manual, tutorial, docs website
 The common authentication username and password used across all inbound share listeners (LAN share and Hotspot share) for local devices.
 _Avoid_: Master password, account, user credentials
 
+**Encrypted DNS**:
+Xray answering captured lookups itself, over DNS-over-HTTPS through Paqet transport, with the network's own resolver kept only for local and direct-routed domains.
+_Avoid_: Secure DNS, DNS proxy, DNS leak protection
+
+**Engine credentials**:
+The machine-generated username and password that authenticate the loopback SOCKS5 hops between ProxiFyre, Xray, and Paqet.
+_Avoid_: Shared proxy credentials, local password
+
 **Local network bypass**:
 Routing policy directive that routes local subnet and private IP traffic directly rather than capturing it into PaqetFire, required for hotspot sharing and LAN device reachability.
 _Avoid_: LAN exclusion, local whitelist

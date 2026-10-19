@@ -32,6 +32,7 @@ public sealed class PaqetFireRuntime(
     PrerequisiteInspector prerequisiteInspector,
     EngineFirewallRules engineFirewallRules,
     IConnectionVerifier connectionVerifier,
+    EngineSocksCredentials engineCredentials,
     RuntimePaths paths,
     ILogger<PaqetFireRuntime> logger) : IPaqetFireRuntime
 {
@@ -64,6 +65,21 @@ public sealed class PaqetFireRuntime(
             !File.Exists(paths.ProxiFyreConfigurationPath))
         {
             return;
+        }
+
+        try
+        {
+            // The guard keeps ProxiFyre running across later connects; refresh its
+            // configuration so it carries the engine credentials Xray will expect.
+            await configurationStore.WriteAsync(
+                    paths.ProxiFyreConfigurationPath,
+                    CreateProxiFyreConfiguration(Normalize(settings)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "The ProxiFyre configuration could not be refreshed before restoring the kill switch.");
         }
 
         try
@@ -458,28 +474,11 @@ public sealed class PaqetFireRuntime(
             settings.LocalTcpFlags,
             settings.RemoteTcpFlags,
             settings.KcpMode);
-        paqetProfile = settings.Advanced.ApplyTo(paqetProfile);
-
-        var policy = new RoutingPolicy(
-            settings.RoutingMode,
-            $"127.0.0.1:{XrayJsonConfigurationWriter.InboundPort}",
-            settings.SelectedApplications,
-            settings.UserExclusions,
-            BypassLan: settings.BypassLan,
-            RouteTcp: settings.RouteTcp,
-            RouteUdp: settings.RouteUdp,
-            RouteIpv4: settings.RouteIpv4,
-            RouteIpv6: settings.RouteIpv6);
-        var brokerExecutablePath = Path.Combine(AppContext.BaseDirectory, "PaqetFire.Broker.exe");
-        var lockedExclusions = RoutingPolicyCompiler.CreateLockedExclusions(
-            paths.PaqetExecutablePath,
-            paths.ProxiFyreExecutablePath,
-            [paths.XrayExecutablePath, brokerExecutablePath]);
-        var routePlan = RoutingPolicyCompiler.Compile(
-            policy,
-            paths.PaqetExecutablePath,
-            paths.ProxiFyreExecutablePath,
-            [paths.XrayExecutablePath, brokerExecutablePath]);
+        paqetProfile = settings.Advanced.ApplyTo(paqetProfile) with
+        {
+            SocksUsername = engineCredentials.Username,
+            SocksPassword = engineCredentials.Password,
+        };
 
         LanSocksShare? hotspotShare = null;
         if (settings.ShareViaHotspot)
@@ -505,8 +504,14 @@ public sealed class PaqetFireRuntime(
                     settings.LanSocksPassword)
                 : null,
             hotspotShare,
-            settings.DirectRouteDestinations));
-        var proxiFyreText = proxiFyreWriter.Write(routePlan, lockedExclusions);
+            settings.DirectRouteDestinations,
+            new XrayDnsPolicy(
+                settings.DnsResolver,
+                network.DnsServers,
+                ResolveIpv4: settings.RouteIpv4,
+                ResolveIpv6: settings.RouteIpv6),
+            engineCredentials));
+        var proxiFyreText = CreateProxiFyreConfiguration(settings);
 
         await configurationStore.WriteAsync(paths.PaqetConfigurationPath, paqetText, cancellationToken)
             .ConfigureAwait(false);
@@ -515,6 +520,33 @@ public sealed class PaqetFireRuntime(
         await configurationStore.WriteAsync(paths.XrayConfigurationPath, xrayText, cancellationToken)
             .ConfigureAwait(false);
         return network.InterfaceName;
+    }
+
+    private string CreateProxiFyreConfiguration(PaqetFireSettings settings)
+    {
+        var policy = new RoutingPolicy(
+            settings.RoutingMode,
+            $"127.0.0.1:{XrayJsonConfigurationWriter.InboundPort}",
+            settings.SelectedApplications,
+            settings.UserExclusions,
+            BypassLan: settings.BypassLan,
+            RouteTcp: settings.RouteTcp,
+            RouteUdp: settings.RouteUdp,
+            RouteIpv4: settings.RouteIpv4,
+            RouteIpv6: settings.RouteIpv6,
+            Username: engineCredentials.Username,
+            Password: engineCredentials.Password);
+        var brokerExecutablePath = Path.Combine(AppContext.BaseDirectory, "PaqetFire.Broker.exe");
+        var lockedExclusions = RoutingPolicyCompiler.CreateLockedExclusions(
+            paths.PaqetExecutablePath,
+            paths.ProxiFyreExecutablePath,
+            [paths.XrayExecutablePath, brokerExecutablePath]);
+        var routePlan = RoutingPolicyCompiler.Compile(
+            policy,
+            paths.PaqetExecutablePath,
+            paths.ProxiFyreExecutablePath,
+            [paths.XrayExecutablePath, brokerExecutablePath]);
+        return proxiFyreWriter.Write(routePlan, lockedExclusions);
     }
 
     private async ValueTask<BrokerSnapshot> CreateSnapshotAsync(

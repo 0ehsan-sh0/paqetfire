@@ -1,9 +1,20 @@
 namespace PaqetFire.Core.Configuration;
 
-/// <summary>Optional Paqet packet tuning. Null values retain the bundled engine defaults.</summary>
+/// <summary>
+/// Optional Paqet packet tuning. Null values retain the bundled engine defaults, except
+/// the KCP windows, which fall back to PaqetFire's recommended sizes.
+/// </summary>
 public sealed record PaqetAdvancedOptions
 {
-    public string LogLevel { get; init; } = "info";
+    // Paqet's client defaults (512 receive, 128 send) cap a 150 ms route near 37/9 Mbit/s.
+    // These match the server's default 1024-packet send window for downloads, and leave
+    // uploads below the server's receive window. Presets disable congestion control, so
+    // larger send windows would mostly add queueing on slow uplinks.
+    public const int RecommendedKcpReceiveWindow = 1024;
+    public const int RecommendedKcpSendWindow = 512;
+
+    // Paqet logs every SOCKS destination at info level.
+    public string LogLevel { get; init; } = "warn";
 
     public int LocalIpv4Port { get; init; } = 0;
 
@@ -62,8 +73,8 @@ public sealed record PaqetAdvancedOptions
         KcpWriteDelay = KcpWriteDelay,
         KcpAckNoDelay = KcpAckNoDelay,
         KcpMtu = KcpMtu,
-        KcpReceiveWindow = KcpReceiveWindow,
-        KcpSendWindow = KcpSendWindow,
+        KcpReceiveWindow = KcpReceiveWindow ?? RecommendedKcpReceiveWindow,
+        KcpSendWindow = KcpSendWindow ?? RecommendedKcpSendWindow,
         KcpBlock = KcpBlock,
         SmuxBufferBytes = SmuxBufferBytes,
         StreamBufferBytes = StreamBufferBytes,

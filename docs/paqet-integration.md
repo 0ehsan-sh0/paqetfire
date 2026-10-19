@@ -41,12 +41,21 @@ Advanced transport settings additionally expose logging, IPv4 source port,
 optional IPv6 capture details, PCAP buffering, connection count, and all KCP
 tuning fields through `PaqetAdvancedOptions`. These settings survive save,
 duplicate, switch, protected storage, and portable exports. Null numeric/boolean
-values are deliberately omitted so the bundled engine supplies its defaults.
-Manual controls are disabled when a preset would override them. The app offers
+values are deliberately omitted so the bundled engine supplies its defaults,
+except the KCP windows: blank receive/send windows are written as 1024/512
+packets. Paqet's client defaults of 512/128 cap a 150 ms route at roughly
+37/9 Mbit/s, while its server sends with a 1024-packet window by default.
+Logging defaults to `warn` because `info` records every SOCKS destination.
+Existing profiles keep their saved log level. Manual controls are disabled when a preset would override them. The app offers
 the documented manual ranges; its keepalive inputs use positive seconds up to
 one day. Blank fields select defaults instead of upstream's zero sentinel.
 
-SOCKS listener wiring remains owned by the application. Optional low-level
+SOCKS listener wiring remains owned by the application. The listener requires
+the broker's engine credentials, generated once and stored DPAPI-protected in
+`%ProgramData%\PaqetFire\engine-credentials.json`; Xray's Paqet outbound, the
+live-statistics probe, and ProxiFyre's link to Xray use the same credentials.
+The readiness probe offers both no-auth and username/password so it only checks
+that a SOCKS5 server answers. Optional low-level
 port-forward rules remain a writer capability, separate from packet tuning.
 The obsolete `transport.tcpbuf` and `transport.udpbuf` fields are no longer
 written: they do not exist in alpha.21. See the [upstream option audit](paqet-options-research.md)

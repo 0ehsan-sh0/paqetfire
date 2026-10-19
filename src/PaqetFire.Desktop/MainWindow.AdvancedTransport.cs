@@ -47,9 +47,9 @@ public sealed partial class MainWindow
         AddAdvancedNumber("MTU (bytes)", "transport.kcp.mtu", value => value.KcpMtu,
             (value, edited) => value with { KcpMtu = edited }, 50, 1500);
         AddAdvancedNumber("Receive window (packets)", "transport.kcp.rcvwnd", value => value.KcpReceiveWindow,
-            (value, edited) => value with { KcpReceiveWindow = edited }, 1, 32768);
+            (value, edited) => value with { KcpReceiveWindow = edited }, 1, 32768, PaqetAdvancedOptions.RecommendedKcpReceiveWindow);
         AddAdvancedNumber("Send window (packets)", "transport.kcp.sndwnd", value => value.KcpSendWindow,
-            (value, edited) => value with { KcpSendWindow = edited }, 1, 32768);
+            (value, edited) => value with { KcpSendWindow = edited }, 1, 32768, PaqetAdvancedOptions.RecommendedKcpSendWindow);
         AddAdvancedChoice("Encryption algorithm", "transport.kcp.block", ["aes", "aes-128", "aes-128-gcm", "aes-192", "salsa20", "blowfish", "twofish", "cast5", "3des", "tea", "xtea", "xor", "sm4", "none", "null"],
             value => value.KcpBlock, (value, edited) => value with { KcpBlock = edited });
         AdvancedOptionsPanel.Children.Add(new TextBlock
@@ -93,11 +93,11 @@ public sealed partial class MainWindow
 
     private NumberBox AddAdvancedNumber(string label, string key,
         Func<PaqetAdvancedOptions, int?> read, Func<PaqetAdvancedOptions, int?, PaqetAdvancedOptions> write,
-        int minimum, int maximum)
+        int minimum, int maximum, int? defaultValue = null)
     {
         var control = new NumberBox
         {
-            Header = label, PlaceholderText = "Default",
+            Header = label, PlaceholderText = defaultValue is { } fallback ? $"Default · {fallback:N0}" : "Default",
             Value = double.NaN, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };

@@ -27,11 +27,14 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
     private readonly HttpClient client;
     private long lastSuccessTimestamp;
 
-    public PaqetTunnelProbe()
+    public PaqetTunnelProbe(EngineSocksCredentials credentials)
     {
         client = new HttpClient(new SocketsHttpHandler
         {
-            Proxy = new WebProxy(new Uri($"socks5://127.0.0.1:{XrayJsonConfigurationWriter.PaqetPort}")),
+            Proxy = new WebProxy(new Uri($"socks5://127.0.0.1:{XrayJsonConfigurationWriter.PaqetPort}"))
+            {
+                Credentials = new NetworkCredential(credentials.Username, credentials.Password),
+            },
             UseProxy = true,
             ConnectTimeout = ProbeTimeout,
             PooledConnectionIdleTimeout = WarmConnectionLifetime + TimeSpan.FromSeconds(10),

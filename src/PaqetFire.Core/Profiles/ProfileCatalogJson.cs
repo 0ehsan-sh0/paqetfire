@@ -294,6 +294,8 @@ public static class ProfileCatalogJson
 
         public XrayDomainStrategy DomainStrategy { get; init; } = XrayDomainStrategy.IPIfNonMatch;
 
+        public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
+
         public bool BlockAds { get; init; } = true;
 
         public bool BlockQuic { get; init; }
@@ -336,6 +338,7 @@ public static class ProfileCatalogJson
             RouteIpv6 = settings.RouteIpv6,
             RegionalPreset = settings.RegionalPreset,
             DomainStrategy = settings.DomainStrategy,
+            DnsResolver = settings.DnsResolver,
             BlockAds = settings.BlockAds,
             BlockQuic = settings.BlockQuic,
             DirectBitTorrent = settings.DirectBitTorrent,
@@ -368,6 +371,7 @@ public static class ProfileCatalogJson
             RouteIpv6 = RouteIpv6,
             RegionalPreset = RegionalPreset,
             DomainStrategy = DomainStrategy,
+            DnsResolver = DnsResolver,
             BlockAds = BlockAds,
             BlockQuic = BlockQuic,
             DirectBitTorrent = DirectBitTorrent,

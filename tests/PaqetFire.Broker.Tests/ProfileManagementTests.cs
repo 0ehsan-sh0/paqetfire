@@ -185,7 +185,7 @@ public sealed class ProfileManagementTests
             Runtime = new(Controller, paqet, xray, new SettingsStore(), Store,
                 Configurations, null!, null!, null!, null!, null!, null!, new PrerequisiteInspector(),
                 new EngineFirewallRules(new InMemoryFirewallRuleStore(), paths, NullLogger<EngineFirewallRules>.Instance),
-                null!, paths,
+                null!, EngineSocksCredentials.Generate(), paths,
                 NullLogger<PaqetFireRuntime>.Instance);
         }
 

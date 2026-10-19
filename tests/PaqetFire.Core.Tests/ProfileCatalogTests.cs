@@ -97,6 +97,23 @@ public sealed class ProfileCatalogTests
         Assert.Equal(WorkId, loaded.ActiveProfile.Settings.NetworkInterfaceGuid);
         Assert.Equal(transportSecret, loaded.ActiveProfile.Settings.TransportKey);
         Assert.Equal(sharingSecret, loaded.ActiveProfile.Settings.LanSocksPassword);
+        Assert.Equal(XrayDnsResolver.Quad9, loaded.ActiveProfile.Settings.DnsResolver);
+    }
+
+    [Fact]
+    public void CatalogsSavedBeforeEncryptedDnsDefaultToCloudflare()
+    {
+        var protector = new TestProtector();
+        var document = System.Text.Json.Nodes.JsonNode.Parse(
+            ProfileCatalogJson.WriteProtected(ProfileCatalog.Create(HomeId, Settings("Home")), protector))!;
+        foreach (var profile in document["profiles"]!.AsArray())
+        {
+            Assert.True(profile!["settings"]!.AsObject().Remove("dnsResolver"));
+        }
+
+        var loaded = ProfileCatalogJson.ReadProtected(document.ToJsonString(), protector);
+
+        Assert.Equal(XrayDnsResolver.Cloudflare, loaded.ActiveProfile.Settings.DnsResolver);
     }
 
     [Fact]
@@ -170,6 +187,7 @@ public sealed class ProfileCatalogTests
         Assert.Equal(settings.RoutingMode, imported.RoutingMode);
         Assert.Equal(settings.SelectedApplications, imported.SelectedApplications);
         Assert.Equal(settings.DirectRouteDestinations, imported.DirectRouteDestinations);
+        Assert.Equal(XrayDnsResolver.Quad9, imported.DnsResolver);
         Assert.Equal(settings.ShareViaHotspot, imported.ShareViaHotspot);
         Assert.Empty(imported.LanSocksPassword);
         Assert.Null(imported.NetworkInterfaceGuid);
@@ -252,6 +270,7 @@ public sealed class ProfileCatalogTests
         RouteIpv6 = false,
         RegionalPreset = RegionalRoutingPreset.None,
         DomainStrategy = XrayDomainStrategy.AsIs,
+        DnsResolver = XrayDnsResolver.Quad9,
         BlockAds = false,
         BlockQuic = true,
         DirectBitTorrent = false,

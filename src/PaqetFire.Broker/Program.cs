@@ -37,6 +37,8 @@ var paths = new RuntimePaths(
         "settings.json"));
 
 builder.Services.AddSingleton(paths);
+builder.Services.AddSingleton(_ => new EngineCredentialStore(
+    Path.Combine(Path.GetDirectoryName(paths.MachineSettingsPath)!, "engine-credentials.json")).LoadOrCreate());
 builder.Services.AddSingleton<PayloadIntegrityInspector>();
 builder.Services.AddSingleton<PrerequisiteInspector>();
 builder.Services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();

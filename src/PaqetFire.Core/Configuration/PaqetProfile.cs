@@ -15,7 +15,7 @@ public sealed record PaqetProfile(
     IReadOnlyList<string> RemoteTcpFlags,
     string KcpMode = "fast")
 {
-    public string LogLevel { get; init; } = "info";
+    public string LogLevel { get; init; } = "warn";
 
     public int LocalIpv4Port { get; init; }
 

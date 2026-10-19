@@ -22,6 +22,9 @@ public sealed class NetworkEnvironmentDetector
         }
 
         return new NetworkEnvironment(adapter.InterfaceName, adapter.InterfaceGuid.ToString("D"),
-            adapter.LocalAddress.ToString(), adapter.Gateway.ToString(), detected.RouterMac);
+            adapter.LocalAddress.ToString(), adapter.Gateway.ToString(), detected.RouterMac)
+        {
+            DnsServers = adapter.DnsServers.Select(server => server.ToString()).ToArray(),
+        };
     }
 }

@@ -440,6 +440,14 @@
                 </ComboBox>
                 <TextBlock Text="The Iran preset uses Xray GeoSite and GeoIP rules. Iranian domains and addresses connect directly; everything else follows your application routing mode."
                            FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                <ComboBox x:Name="DnsResolverBox" Header="DNS resolver" SelectedIndex="0" HorizontalAlignment="Stretch">
+                  <ComboBoxItem Content="Cloudflare — Encrypted DNS through Paqet (recommended)" />
+                  <ComboBoxItem Content="Google — Encrypted DNS through Paqet" />
+                  <ComboBoxItem Content="Quad9 — Encrypted DNS through Paqet" />
+                  <ComboBoxItem Content="System resolver — Lookups bypass PaqetFire" />
+                </ComboBox>
+                <TextBlock Text="Captured DNS lookups are answered by Xray over DNS-over-HTTPS through Paqet. Local, Iranian, and custom direct domains use this network's resolver. Lookups by applications outside the route, or to LAN resolvers while local network bypass is on, are not captured."
+                           FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
                 <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <ToggleSwitch x:Name="BlockAdsSwitch" Header="Block advertising domains" IsOn="True"
@@ -742,7 +750,7 @@
                   <TextBlock x:Name="VerificationSummaryText"
                              Text="Connect, then verify the local proxy route over TCP, routed UDP/DNS, IPv4, and IPv6."
                              Opacity="0.68" TextWrapping="Wrap" />
-                  <TextBlock Text="Only when you click Verify route, public-address checks contact api4.ipify.org and api6.ipify.org through Xray; returned addresses remain local. UDP/DNS uses a routed query for example.com through 1.1.1.1. This does not prove that every application is captured or detect system DNS/WebRTC leaks."
+                  <TextBlock Text="Only when you click Verify route, public-address checks contact api4.ipify.org and api6.ipify.org through Xray; returned addresses remain local. UDP/DNS sends a query for example.com through Xray's UDP relay; with encrypted DNS, Xray answers it over DNS-over-HTTPS through Paqet. This does not prove that every application is captured or detect system DNS/WebRTC leaks."
                              FontSize="12" Opacity="0.58" TextWrapping="Wrap" />
                 </StackPanel>
                 <InfoBar x:Name="VerificationInfoBar" IsOpen="False" IsClosable="True" />

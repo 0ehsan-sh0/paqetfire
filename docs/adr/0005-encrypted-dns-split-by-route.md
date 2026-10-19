@@ -1,0 +1,3 @@
+# Encrypted DNS inside Xray, split by route
+
+We hijack captured port-53 traffic into Xray's DNS module and resolve over DNS-over-HTTPS through Paqet, instead of leaving lookups to the Windows resolver. With the default Iran preset, the Windows resolver is usually an ISP or router address that matches a direct rule, so the full list of visited domains went out in plaintext. Local, Iranian, and custom direct domains still use the adapter's own resolver, queried directly by Xray. Those connections are already direct, and a foreign resolver's answers would break Iranian CDN edges and LAN names. Pointing the domestic path at `localhost` instead would loop back through capture. FakeDNS was rejected for now because fake addresses outlive a disconnect in the Windows DNS cache.

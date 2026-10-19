@@ -35,6 +35,8 @@ public sealed class DesktopPreferences
 
     public XrayDomainStrategy DomainStrategy { get; set; } = XrayDomainStrategy.IPIfNonMatch;
 
+    public XrayDnsResolver DnsResolver { get; set; } = XrayDnsResolver.Cloudflare;
+
     public bool BlockAds { get; set; } = true;
 
     public bool BlockQuic { get; set; }

@@ -9,6 +9,9 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
     public const int PaqetPort = 1080;
     public const int StatsApiPort = 10085;
     public const string PaqetOutboundTag = "paqet";
+    private const string DnsOutboundTag = "dns-out";
+    private const string RemoteDnsTag = "dns-remote";
+    private const string DomesticDnsTag = "dns-domestic";
 
     public string Write(XrayRoutingPolicy policy)
     {
@@ -23,12 +26,27 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
         }
 
         var directDestinations = ParseDirectDestinations(policy.DirectRouteDestinations);
+        var dns = ValidateDns(policy.Dns);
 
         if (policy.LanShare is not null && policy.HotspotShare is not null &&
             policy.LanShare.Port == policy.HotspotShare.Port)
         {
             throw new ConfigurationValidationException(["The hotspot port must differ from the LAN share port."]);
         }
+
+        var directDomains = directDestinations
+            .Where(destination => destination.Kind == DirectRouteDestinationKind.Domain)
+            .Select(destination => destination.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var directIps = directDestinations
+            .Where(destination => destination.Kind == DirectRouteDestinationKind.Ip)
+            .Select(destination => destination.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var userInboundTags = new List<string> { "proxifyre-in" };
+        if (policy.LanShare is not null) userInboundTags.Add("lan-share-in");
+        if (policy.HotspotShare is not null) userInboundTags.Add("hotspot-share-in");
 
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -37,6 +55,11 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteStartObject("log");
             writer.WriteString("loglevel", "warning");
             writer.WriteEndObject();
+
+            if (dns is not null)
+            {
+                WriteDnsModule(writer, dns, policy.RegionalPreset, directDomains);
+            }
 
             // Loopback-only StatsService exposes traffic counters for the live
             // connection card. HandlerService is deliberately not enabled.
@@ -63,7 +86,15 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteNumber("port", InboundPort);
             writer.WriteString("protocol", "socks");
             writer.WriteStartObject("settings");
-            writer.WriteString("auth", "noauth");
+            if (policy.EngineCredentials is { } engineCredentials)
+            {
+                WritePasswordAuthentication(writer, engineCredentials.Username, engineCredentials.Password);
+            }
+            else
+            {
+                writer.WriteString("auth", "noauth");
+            }
+
             writer.WriteBoolean("udp", true);
             writer.WriteEndObject();
             writer.WriteStartObject("sniffing");
@@ -91,13 +122,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteNumber("port", lanShare.Port);
                 writer.WriteString("protocol", "socks");
                 writer.WriteStartObject("settings");
-                writer.WriteString("auth", "password");
-                writer.WriteStartArray("accounts");
-                writer.WriteStartObject();
-                writer.WriteString("user", lanShare.Username);
-                writer.WriteString("pass", lanShare.Password);
-                writer.WriteEndObject();
-                writer.WriteEndArray();
+                WritePasswordAuthentication(writer, lanShare.Username, lanShare.Password);
                 writer.WriteBoolean("udp", true);
                 writer.WriteString("ip", lanShare.ListenAddress);
                 writer.WriteEndObject();
@@ -122,13 +147,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteNumber("port", hotspotShare.Port);
                 writer.WriteString("protocol", "socks");
                 writer.WriteStartObject("settings");
-                writer.WriteString("auth", "password");
-                writer.WriteStartArray("accounts");
-                writer.WriteStartObject();
-                writer.WriteString("user", hotspotShare.Username);
-                writer.WriteString("pass", hotspotShare.Password);
-                writer.WriteEndObject();
-                writer.WriteEndArray();
+                WritePasswordAuthentication(writer, hotspotShare.Username, hotspotShare.Password);
                 writer.WriteBoolean("udp", true);
                 writer.WriteString("ip", hotspotShare.ListenAddress);
                 writer.WriteEndObject();
@@ -146,24 +165,56 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteEndArray();
 
             writer.WriteStartArray("outbounds");
-            WritePaqetOutbound(writer);
-            WriteSimpleOutbound(writer, "direct", "freedom");
+            WritePaqetOutbound(writer, policy.EngineCredentials);
+            if (dns is null)
+            {
+                WriteSimpleOutbound(writer, "direct", "freedom");
+            }
+            else
+            {
+                // Resolve direct destinations with Xray's DNS policy; the Windows resolver
+                // would send the lookup back through capture or out in plaintext.
+                writer.WriteStartObject();
+                writer.WriteString("tag", "direct");
+                writer.WriteString("protocol", "freedom");
+                writer.WriteStartObject("settings");
+                writer.WriteString("domainStrategy", "UseIP");
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            }
+
             WriteSimpleOutbound(writer, "block", "blackhole");
+            if (dns is not null)
+            {
+                // A and AAAA queries are answered by the DNS module. Other types, such as
+                // SRV, TXT, or MX, stay plain DNS but are sent to the provider through Paqet:
+                // the original resolver may be a LAN address unreachable from the server.
+                writer.WriteStartObject();
+                writer.WriteString("tag", DnsOutboundTag);
+                writer.WriteString("protocol", "dns");
+                writer.WriteStartObject("settings");
+                writer.WriteString("nonIPQuery", "skip");
+                writer.WriteString("address", PlainDnsAddress(dns.Resolver));
+                writer.WriteNumber("port", 53);
+                writer.WriteEndObject();
+                writer.WriteStartObject("streamSettings");
+                writer.WriteStartObject("sockopt");
+                writer.WriteString("dialerProxy", PaqetOutboundTag);
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            }
+
             writer.WriteEndArray();
 
             writer.WriteStartObject("routing");
             writer.WriteString("domainStrategy", policy.DomainStrategy.ToString());
             writer.WriteStartArray("rules");
-            var directDomains = directDestinations
-                .Where(destination => destination.Kind == DirectRouteDestinationKind.Domain)
-                .Select(destination => destination.Value)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var directIps = directDestinations
-                .Where(destination => destination.Kind == DirectRouteDestinationKind.Ip)
-                .Select(destination => destination.Value)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            if (dns is not null)
+            {
+                WriteDnsRules(writer, dns, userInboundTags);
+            }
+
             if (directDomains.Length > 0)
             {
                 WriteRule(writer, "domain", directDomains, "direct");
@@ -280,7 +331,145 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
         writer.WriteEndObject();
     }
 
-    private static void WritePaqetOutbound(Utf8JsonWriter writer)
+    private static XrayDnsPolicy? ValidateDns(XrayDnsPolicy? dns)
+    {
+        if (dns is null)
+        {
+            return null;
+        }
+
+        if (!Enum.IsDefined(dns.Resolver))
+        {
+            throw new ConfigurationValidationException(["The DNS resolver is invalid."]);
+        }
+
+        if (!dns.ResolveIpv4 && !dns.ResolveIpv6)
+        {
+            throw new ConfigurationValidationException(["DNS must resolve at least one address family."]);
+        }
+
+        if (dns.DomesticServers.Any(server =>
+                !System.Net.IPAddress.TryParse(server, out var address) ||
+                address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork))
+        {
+            throw new ConfigurationValidationException(["Every domestic DNS server must be an IPv4 address."]);
+        }
+
+        return dns.Resolver == XrayDnsResolver.System ? null : dns;
+    }
+
+    private static IReadOnlyList<string> RemoteDnsAddresses(XrayDnsResolver resolver) => resolver switch
+    {
+        // IP-literal endpoints need no bootstrap lookup; each certificate covers its IP.
+        XrayDnsResolver.Cloudflare => ["https://1.1.1.1/dns-query", "https://1.0.0.1/dns-query"],
+        XrayDnsResolver.Google => ["https://8.8.8.8/dns-query", "https://8.8.4.4/dns-query"],
+        XrayDnsResolver.Quad9 => ["https://9.9.9.9/dns-query", "https://149.112.112.112/dns-query"],
+        _ => throw new ConfigurationValidationException(["The DNS resolver is invalid."]),
+    };
+
+    private static string PlainDnsAddress(XrayDnsResolver resolver) => resolver switch
+    {
+        XrayDnsResolver.Cloudflare => "1.1.1.1",
+        XrayDnsResolver.Google => "8.8.8.8",
+        XrayDnsResolver.Quad9 => "9.9.9.9",
+        _ => throw new ConfigurationValidationException(["The DNS resolver is invalid."]),
+    };
+
+    private static void WriteDnsModule(
+        Utf8JsonWriter writer,
+        XrayDnsPolicy dns,
+        RegionalRoutingPreset regionalPreset,
+        IReadOnlyList<string> directDomains)
+    {
+        writer.WriteStartObject("dns");
+        writer.WriteStartArray("servers");
+        foreach (var address in RemoteDnsAddresses(dns.Resolver))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("address", address);
+            writer.WriteString("tag", RemoteDnsTag);
+            writer.WriteEndObject();
+        }
+
+        // Local names and direct-routed destinations keep the network's own answers,
+        // such as Iranian CDN edges; these lookups reveal nothing the direct
+        // connection does not. Everything else never reaches this resolver.
+        var domesticDomains = new List<string> { "geosite:private" };
+        if (regionalPreset == RegionalRoutingPreset.IranDirect)
+        {
+            domesticDomains.Add("geosite:category-ir");
+        }
+
+        domesticDomains.AddRange(directDomains);
+        foreach (var server in dns.DomesticServers.Distinct(StringComparer.Ordinal))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("address", server);
+            writer.WriteNumber("port", 53);
+            writer.WriteStartArray("domains");
+            foreach (var domain in domesticDomains)
+            {
+                writer.WriteStringValue(domain);
+            }
+
+            writer.WriteEndArray();
+            writer.WriteBoolean("skipFallback", true);
+            writer.WriteString("tag", DomesticDnsTag);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteString("queryStrategy", (dns.ResolveIpv4, dns.ResolveIpv6) switch
+        {
+            (true, false) => "UseIPv4",
+            (false, true) => "UseIPv6",
+            _ => "UseIP",
+        });
+        writer.WriteEndObject();
+    }
+
+    private static void WriteDnsRules(
+        Utf8JsonWriter writer,
+        XrayDnsPolicy dns,
+        IReadOnlyList<string> userInboundTags)
+    {
+        // Resolver traffic must be pinned before user rules: a custom direct IP or
+        // regional rule matching a resolver address would otherwise leak queries.
+        if (dns.DomesticServers.Count > 0)
+        {
+            WriteRule(writer, "inboundTag", [DomesticDnsTag], "direct");
+        }
+
+        WriteRule(writer, "inboundTag", [RemoteDnsTag], "paqet");
+
+        // Captured lookups (Windows DNS client, LAN and hotspot devices) are answered
+        // by Xray instead of reaching their original, typically ISP, resolver.
+        writer.WriteStartObject();
+        writer.WriteString("type", "field");
+        writer.WriteStartArray("inboundTag");
+        foreach (var tag in userInboundTags)
+        {
+            writer.WriteStringValue(tag);
+        }
+
+        writer.WriteEndArray();
+        writer.WriteString("port", "53");
+        writer.WriteString("outboundTag", DnsOutboundTag);
+        writer.WriteEndObject();
+    }
+
+    private static void WritePasswordAuthentication(Utf8JsonWriter writer, string username, string password)
+    {
+        writer.WriteString("auth", "password");
+        writer.WriteStartArray("accounts");
+        writer.WriteStartObject();
+        writer.WriteString("user", username);
+        writer.WriteString("pass", password);
+        writer.WriteEndObject();
+        writer.WriteEndArray();
+    }
+
+    private static void WritePaqetOutbound(Utf8JsonWriter writer, EngineSocksCredentials? credentials)
     {
         writer.WriteStartObject();
         writer.WriteString("tag", "paqet");
@@ -290,6 +479,16 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
         writer.WriteStartObject();
         writer.WriteString("address", "127.0.0.1");
         writer.WriteNumber("port", PaqetPort);
+        if (credentials is not null)
+        {
+            writer.WriteStartArray("users");
+            writer.WriteStartObject();
+            writer.WriteString("user", credentials.Username);
+            writer.WriteString("pass", credentials.Password);
+            writer.WriteEndObject();
+            writer.WriteEndArray();
+        }
+
         writer.WriteEndObject();
         writer.WriteEndArray();
         writer.WriteEndObject();

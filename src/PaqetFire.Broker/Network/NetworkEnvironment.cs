@@ -5,4 +5,7 @@ public sealed record NetworkEnvironment(
     string InterfaceGuid,
     string LocalIpv4Address,
     string GatewayIpv4Address,
-    string GatewayMacAddress);
+    string GatewayMacAddress)
+{
+    public IReadOnlyList<string> DnsServers { get; init; } = [];
+}

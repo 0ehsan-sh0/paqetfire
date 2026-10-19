@@ -143,6 +143,16 @@ public sealed class NetworkAdapterDetectionTests
     }
 
     [Fact]
+    public void BrokerReportsTheSelectedAdapterDnsServers()
+    {
+        var wifi = Wifi with { DnsServers = [IPAddress.Parse("192.168.1.1"), IPAddress.Parse("217.218.127.127")] };
+        var broker = new NetworkEnvironmentDetector(new NetworkAdapterDetector(() => [wifi, Ethernet], (_, _) => "02:11:22:33:44:55"));
+
+        Assert.Equal(["192.168.1.1", "217.218.127.127"], broker.Detect(Wifi.InterfaceGuid).DnsServers);
+        Assert.Empty(broker.Detect(Ethernet.InterfaceGuid).DnsServers);
+    }
+
+    [Fact]
     public void BrokerRejectsUnresolvedMacOnSelectedInterface()
     {
         var broker = new NetworkEnvironmentDetector(new NetworkAdapterDetector(() => [Wifi, Ethernet], (_, _) => null));
