@@ -2,7 +2,6 @@
 
 This note records the production integration contract for PaqetFire. It was
 rechecked against ProxiFyre 2.6.1 documentation and source on 2026-09-24.
-See the [engine release assessment](engine-update-2026-09-24.md).
 
 ## Runtime model
 
@@ -30,7 +29,10 @@ see the [official configuration reference](https://github.com/wiresock/proxifyre
 
 ## Configuration and route behavior
 
-PaqetFire supports the complete ProxiFyre rule surface:
+`ProxiFyreJsonConfigurationWriter` supports the complete ProxiFyre rule surface
+below. The product currently always targets the local Xray listener over plain,
+unauthenticated SOCKS5/TCP at `Info` log level; the TLS, authentication, and
+log-level options have no UI.
 
 - ordered application rules (first match wins);
 - catch-all routing represented by exactly `"appNames": [""]` and placed last;
@@ -104,12 +106,12 @@ The driver identity, compatibility checks, upstream filename, size, and pinned
 hash are maintained in the
 [official Windows Packet Filter prerequisite section](https://github.com/wiresock/proxifyre/blob/main/docs/installer.md#windows-packet-filter-prerequisite).
 
-An MSI must not install another MSI with a custom action. To provide one user
-experience while preserving reliable servicing, PaqetFire should ship a WiX
-Burn bootstrapper that chains the unchanged prerequisite installers followed by
-the PaqetFire MSI. An offline bundle can embed those payloads only when their
-redistribution terms permit it; otherwise the bootstrapper must acquire and
-verify them from pinned official URLs.
+An MSI must not install another MSI with a custom action, so the PaqetFire MSI
+does not chain these prerequisites. The broker reports each one as missing and
+blocks connecting; the desktop app downloads the pinned Windows Packet Filter and
+VC++ installers from their official URLs, verifies their SHA-256, and launches
+them. A single offline setup would need a WiX Burn bundle and redistribution
+rights for the embedded payloads.
 
 ## Licensing and release gate
 
@@ -125,25 +127,22 @@ not automatically settle every redistribution case. Before distributing
 PaqetFire beyond personal testing, confirm the intended use against the
 [publisher's licensing page](https://www.ntkernel.com/windows-packet-filter/licensing/).
 
-## Broker wiring requirements
+## Broker wiring
 
-The composition root must:
+On every connect, `PaqetFireRuntime`:
 
-1. verify the closed payload manifest and hashes before activating engines;
-2. construct the routing policy with the installed full paths of Paqet,
-   Xray, ProxiFyre, and the broker as locked exclusions;
-3. call `RoutingPolicyCompiler.CreateLockedExclusions(...)`, pass the same list
-   to `ProxiFyreJsonConfigurationWriter.Write(...)`, and commit the resulting
-   JSON beside `ProxiFyre.exe` through the atomic protected store;
-4. start Paqet, then Xray, waiting for each SOCKS5 listener before starting ProxiFyre;
-5. stop ProxiFyre, then Xray, then Paqet; and
-6. surface missing `NDISRD`, service-start failure, configuration validation,
-   and Paqet-listener failure separately.
+1. verifies the payload manifest hashes;
+2. passes the installed full paths of Xray and the broker, alongside Paqet and
+   ProxiFyre, to `RoutingPolicyCompiler.CreateLockedExclusions(...)`, then writes
+   the resulting `ProxiFyreJsonConfigurationWriter` JSON beside `ProxiFyre.exe`
+   through the atomic protected store;
+3. starts Paqet, then Xray, waiting for each local listener before starting
+   ProxiFyre; and stops them in the reverse order.
 
-The broker reports the bundled engine version and performs prerequisite checks.
-The installer retains the two program-scoped firewall rules and removes obsolete
-standalone `ProxiFyreService` registration; the broker owns the process lifecycle.
-Before every connect, the broker also restores any of the installer's four engine
+Missing `NDISRD`, configuration validation, and engine start failures are
+surfaced separately. The installer keeps the two program-scoped ProxiFyre firewall
+rules and removes obsolete standalone `ProxiFyreService` registration; the broker
+owns the process lifecycle. Before every connect, the broker also restores any of the installer's four engine
 firewall rules that are missing, disabled, or point at another path, using the same
 rule names so MSI uninstall still removes them. Windows Installer deletes these rules
 by name when *any* PaqetFire package is uninstalled, and a firewall reset deletes them

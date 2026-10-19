@@ -42,6 +42,8 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         _proxiFyre = proxiFyre;
     }
 
+    // Deliberately does not take the transition gate so the desktop can observe a long
+    // transition; adapters must therefore tolerate GetStatusAsync during Start/Stop.
     public async ValueTask<ConnectionStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -89,6 +91,8 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             var proxiFyreStartAttempted = false;
             var activeEngine = EngineKind.Paqet;
 
+            // ProxiFyre starts last so application capture is only enabled once the
+            // complete local SOCKS chain behind it is running.
             try
             {
                 if (!paqetInitiallyRunning)
@@ -145,6 +149,8 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         {
             _transitionState = ConnectionState.Disconnecting;
 
+            // Each failure stops the sequence: tearing down the carrier while capture may
+            // still be enabled would leave routed applications attached to nothing.
             try
             {
                 await StopAndVerifyAsync(_proxiFyre, cancellationToken).ConfigureAwait(false);
@@ -362,6 +368,8 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         {
             try
             {
+                // Rollback must restore a safe state even after caller cancellation, so
+                // adapters are expected to bound their own Stop/Start operations.
                 await StopAndVerifyAsync(adapter, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception error)

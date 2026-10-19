@@ -72,5 +72,3 @@ default profile, clears transport keys and sharing authentication, removes
 generated engine configurations and their backups, and restores desktop
 preferences including startup registration and network automation rules.
 It does not uninstall PaqetFire or its drivers. Exported files are unaffected.
-
-The broker and desktop use IPC v12 and must be upgraded together.

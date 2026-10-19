@@ -3,24 +3,20 @@
 PaqetFire bundles Xray-core 26.3.27 as a local destination-policy engine.
 Xray is not a second VPN and does not replace Paqet.
 
-The official latest-stable release and archive digest were rechecked on
-2026-09-24; 26.3.27 remains current. See the
-[engine release assessment](engine-update-2026-09-24.md) for feature opportunities
-and upgrade validation.
-
 ## Data path
 
 ```text
-selected Windows applications
-  -> ProxiFyre
-  -> Xray SOCKS5 on 127.0.0.1:1081
-     -> direct outbound for enabled bypass/block rules
-     -> Paqet SOCKS5 on 127.0.0.1:1080 for the catch-all
+selected Windows applications -> ProxiFyre -> Xray SOCKS5 127.0.0.1:1081
+LAN devices                    ------------> Xray SOCKS5 <LAN IPv4>:1082       (optional, authenticated)
+hotspot clients                ------------> Xray SOCKS5 <hotspot IPv4>:10808  (optional, authenticated)
+     Xray -> direct / block outbound for matching rules
+          -> Paqet SOCKS5 on 127.0.0.1:1080 for everything else
 ```
 
-ProxiFyre always excludes the full installed paths of Paqet, Xray, ProxiFyre,
-and the broker. Xray's direct and Paqet-bound sockets therefore cannot re-enter
-the application redirector and form a loop.
+All inbounds sniff HTTP, TLS, and QUIC hostnames and share the same routing
+rules. ProxiFyre always excludes the full installed paths of Paqet, Xray,
+ProxiFyre, and the broker, so Xray's direct and Paqet-bound sockets cannot
+re-enter the application redirector and form a loop.
 
 Both loopback SOCKS5 hops require the broker's engine credentials, so other
 local processes cannot open TCP connections through the route. Xray's UDP relay
@@ -81,21 +77,30 @@ Lookups outside the route are not covered: applications not selected in
 selected-applications mode (Windows resolves for them in `svchost.exe`), and
 queries to a LAN resolver while ProxiFyre's local network bypass is on.
 
-## Default policy
+## Routing rules
 
-- `geosite:private` and `geoip:private` go direct when LAN bypass is enabled.
-- `geosite:category-ir` and `geoip:ir` go direct when the Iran preset is enabled.
-- all remaining TCP and UDP traffic goes to Paqet.
-- advertising blocking and direct BitTorrent are on for new profiles; UDP/443
-  blocking is off. Measured through a Paqet route on 2026-10-19, HTTP/3 had
-  slightly lower request latency than HTTP/2 (warm requests 113–117 ms against
-  154–155 ms) but under half the download throughput (10–11 Mbit/s against
-  17–23 Mbit/s), so enabling Block QUIC favors bulk transfers.
-- `IPIfNonMatch` is the default domain strategy.
+Rules are evaluated in this order; the first match wins:
 
-The UI can disable the regional preset with `None`. It also exposes the three
-Xray domain strategies and optional ads, QUIC, and BitTorrent rules. Direct
-BitTorrent explicitly warns that it exposes the machine's normal public IP.
+1. **DNS** (unless the resolver is System): the DNS module's DoH and domestic
+   queries, then port 53 from the user inbounds to the `dns` outbound.
+2. **Custom direct destinations**: one domain, `*.domain`, IP address, or CIDR
+   range per line. A bare domain also matches its subdomains.
+3. **Block ads** (`geosite:category-ads-all`), on by default.
+4. **Block QUIC** (UDP/443), off by default. Measured through a Paqet route on
+   2026-10-19, HTTP/3 had slightly lower request latency than HTTP/2 (warm
+   requests 113–117 ms against 154–155 ms) but under half the download
+   throughput (10–11 Mbit/s against 17–23 Mbit/s), so enabling it favors bulk
+   transfers.
+5. **Direct BitTorrent**, on by default. The UI warns that it exposes the
+   machine's normal public IP to peers.
+6. **LAN bypass** (`geosite:private`, `geoip:private`).
+7. **Iran — Direct** regional preset (`geosite:category-ir`, `geoip:ir`), the
+   default; `None` disables it.
+8. Everything else goes to Paqet.
+
+`IPIfNonMatch` is the default domain strategy; `AsIs` and `IPOnDemand` are also
+available. TCP/UDP and IPv4/IPv6 selection is enforced by ProxiFyre capture, not
+by Xray rules.
 
 ## Lifecycle and integrity
 

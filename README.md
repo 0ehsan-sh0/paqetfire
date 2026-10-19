@@ -171,8 +171,7 @@ privileged broker. Release payloads are declared in
 `payload/payload-manifest.json`, and engine paths must remain under the protected
 payload root.
 
-More detail is available in [Architecture](docs/architecture.md) and
-[Connection lifecycle](docs/lifecycle-design.md).
+More detail is available in [Architecture](docs/architecture.md).
 
 ## Build from source
 
@@ -261,10 +260,9 @@ Notable work still planned:
 - end-to-end SOCKS5 UDP-associate and packet-leak tests;
 - a machine-wide firewall kill-switch mode;
 - code signing for application and installer binaries;
-- a redistributable driver bootstrapper, subject to upstream licensing;
+- a redistributable driver bootstrapper, subject to upstream licensing.
 
-See the [roadmap](docs/roadmap.md) and
-[development progress](docs/progress.md).
+See the [roadmap](docs/roadmap.md) and the [release notes](docs/releases/).
 
 ## Third-party software and licensing
 

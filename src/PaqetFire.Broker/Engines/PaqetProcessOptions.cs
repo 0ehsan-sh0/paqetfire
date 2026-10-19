@@ -17,7 +17,7 @@ public sealed record PaqetProcessOptions
     public string? Version { get; init; }
 
     /// <summary>
-    /// SHA-256 from the signed PaqetFire payload manifest. When supplied, the
+    /// SHA-256 from the PaqetFire payload manifest. When supplied, the
     /// executable is checked again immediately before every launch.
     /// </summary>
     public string? ExpectedExecutableSha256 { get; init; }

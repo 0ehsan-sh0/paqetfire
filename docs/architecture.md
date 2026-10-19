@@ -40,62 +40,59 @@ The installed layout is owned by PaqetFire and treated as one product:
     payload\
       payload-manifest.json
       engines\
-        paqet\<architecture>\...
-        xray\<architecture>\...
-        proxifyre\<architecture>\...
+        paqet\x64\      paqet_windows_amd64.exe, config.yaml
+        xray\x64\       xray.exe, geoip.dat, geosite.dat, config.json
+        proxifyre\x64\  ProxiFyre.exe and dependencies, app-config.json
+%ProgramData%\PaqetFire\
+  settings.json, profiles.json, engine-credentials.json
 ```
 
-Each manifest file entry includes a relative path, size, and SHA-256 digest.
-The installer verifies release artifacts before packaging. The broker resolves
-only manifest-declared paths beneath the payload root and verifies files before
-launching or registering them.
+Each manifest file entry includes a relative path, size, and SHA-256 digest. The
+manifest is not signed; the hashes pin the upstream artifacts. Release CI
+verifies the downloaded archives before packaging, and the broker re-verifies the
+manifest-declared files before every connect and each executable's digest
+immediately before launch. Generated engine configurations are written
+atomically beside each engine with a `.bak` copy, restricted to SYSTEM and
+Administrators, and regenerated from the saved profile on every connect.
 
-The two upstream engines remain distinct processes because their runtime and
-driver models are different. They are nevertheless internal implementation
+The three upstream engines remain distinct processes because their runtime and
+driver models are different. Paqet and Xray run in a kill-on-close job object,
+leftover engine processes are stopped when the broker starts, and the service
+restarts automatically after a failure. They are nevertheless internal implementation
 components: users install, configure, update, repair, and uninstall PaqetFire
 only.
 
-## Setup chain
+## Installation and prerequisites
 
-The production setup executable will bootstrap, in order:
+Setup is a single x64 MSI. It installs the desktop app, the broker service, and
+the engine payload, removes any obsolete standalone `ProxiFyreService`, and
+creates program-scoped firewall rules for `ProxiFyre.exe` (TCP/UDP) and
+`xray.exe` (LAN SOCKS5 TCP/UDP, local subnet only). Before every connect, the
+broker restores any of those four rules that are missing, disabled, or point at
+another path.
 
-1. architecture and supported-Windows checks;
-2. licensed packet-driver prerequisites;
-3. required Microsoft Visual C++ runtime;
-4. the PaqetFire MSI containing the self-contained UI, broker, and engines;
-5. broker service registration and obsolete ProxiFyre-service cleanup;
-6. firewall rules scoped to the exact installed engine paths.
-
-Setup must be transactional and preserve user profiles during upgrades. Engine
-services do not start until PaqetFire has a complete, valid connection profile.
-
-## Planned lifecycle
-
-1. Desktop connects to the broker and requests a status snapshot.
-2. Broker verifies its bundled engines and discovers driver prerequisites.
-3. User edits a profile in the desktop process.
-4. Broker validates the complete profile again at the trust boundary.
-5. Broker writes a temporary configuration, flushes it, and atomically replaces
-   the live configuration while retaining one backup.
-6. Broker starts or restarts only the selected engine.
-7. Broker streams structured state and bounded log events back to the desktop.
+Drivers and runtimes are not chained by the MSI. The broker reports Npcap,
+Windows Packet Filter (`NDISRD`), the VC++ runtime, and .NET Framework 4.7.2, and
+blocks connecting while one is missing. The desktop app can download, hash-verify,
+and launch the official Windows Packet Filter and VC++ installers; Npcap must be
+installed from its official site because its free license forbids redistribution.
 
 ## Engine loop prevention
 
-PaqetFire supports a Route everything mode by emitting ProxiFyre's explicit
-catch-all application entry (`""`) with TCP, UDP, IPv4, and IPv6 enabled.
-LAN bypass defaults to off in this mode so LAN traffic is not silently exempted.
-
-The generated exclusion list always contains the exact bundled Paqet and
-ProxiFyre executable names. These entries are locked system exclusions: users
-may add exclusions but cannot remove or override them. Paqet's upstream packets
-must never be captured and sent back through Paqet's own SOCKS endpoint.
+The default **All supported applications** routing mode emits ProxiFyre's
+catch-all application entry (`""`). The generated exclusion list always contains
+the full installed paths of Paqet, Xray, ProxiFyre, and `PaqetFire.Broker.exe`.
+These are locked system exclusions: users may add exclusions but cannot remove or
+override them. Full paths are used because ProxiFyre treats a name-only exclusion
+as a substring match. Paqet's and Xray's upstream sockets must never be captured
+and sent back through the local SOCKS chain. Both loopback SOCKS5 hops require
+broker-generated engine credentials, so other local processes cannot use the
+route over TCP.
 
 Npcap and Windows Packet Filter are kernel drivers, not carrier applications,
-so they do not normally create user-mode traffic that needs a process-name
-exclusion. The broker derives exclusions from the signed payload manifest rather
-than assuming that an executable named `npcap.exe` exists.
+so they do not create user-mode traffic that needs a process exclusion.
 
-Before applying a catch-all rule, the broker must verify that Paqet's SOCKS5
-listener is accepting both TCP and UDP. Unsupported protocols or address
-families fail closed rather than bypassing the proxy.
+Before ProxiFyre starts, the broker waits for a SOCKS5 greeting from Paqet and
+for Xray's local listener to accept TCP connections. UDP-associate is not part
+of startup readiness; the on-demand connection verification report checks it
+separately.

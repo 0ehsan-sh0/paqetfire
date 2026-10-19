@@ -48,51 +48,28 @@ are restricted to SYSTEM and Administrators with protected Windows ACLs.
 
 1. Open PaqetFire and go to the **Routing** page.
 2. Enable **Hotspot SOCKS proxy**. If prompted, confirm enabling direct access for local network devices.
-3. Configure the shared proxy username and password in the **Proxy authentication** card if not already set.
+3. Set the username and password in the **Proxy sharing credentials** card if
+   not already set, or use **Generate strong password**. These credentials are
+   shared by LAN and hotspot sharing and apply across all profiles.
 4. Ensure the mobile hotspot is active on the laptop; the hotspot address
-   field will populate (usually `192.168.137.1`).
-5. The **SOCKS endpoint** text will update to show `socks5://user:pass@192.168.137.1:10808`.
-6. Click **Copy** to copy the SOCKS URI to the clipboard.
+   field will populate (usually `192.168.137.1`) and the **SOCKS endpoint** text
+   shows the address and port.
+5. Click **Copy URI / QR payload** to copy the `socks5://` URI, **Test listener**
+   to check that the listener is reachable, or **Copy redacted setup** to share
+   the settings without the password.
 
 After saving or reopening a profile, re-enter the existing proxy password on the
-Routing page to enable password and URI copying. The desktop cannot retrieve the
-saved secret from the broker. If you enter a different password, save the profile
-before using it on your clients.
+Routing page to enable URI copying. The desktop cannot retrieve the saved secret
+from the broker. If you enter a different password, save before using it on your
+clients.
 
 ## Phone setup (SOCKS app required)
 
 Bare Android/iOS WiFi Settings proxy is HTTP‑only and explicitly unsupported. A
-SOCKS‑compatible app is required. PaqetFire includes dedicated, interactive visual
-guides for both apps directly below the Hotspot sharing card:
-
-- **v2rayNG Guide** (Android step-by-step setup)
-- **HAPP / Hiddify Guide** (iOS, Android, and Desktop setup)
-
-Clicking either guide in PaqetFire provides 1-click copy buttons for your active
-hotspot IP, port, credentials, and full SOCKS URI.
-
-### v2rayNG
-
-1. Install v2rayNG from F-Droid or the Play Store.
-2. Add a new outbound SOCKS proxy:
-   - **Address**: the hotspot IP shown in PaqetFire (e.g. `192.168.137.1`).
-   - **Port**: `10808` (or the custom port if changed).
-   - **User**: the LAN SOCKS username (default `paqetfire`).
-   - **Password**: the LAN SOCKS password (at least 8 characters).
-3. Enable **Remote DNS** in the outbound settings so DNS queries are also
-   routed through the proxy.
-4. Select the system-wide or per‑app proxy as needed.
-
-### HAPP / Hiddify
-
-1. Install HAPP or Hiddify from the respective store.
-2. Add a new SOCKS5 proxy:
-   - **Address**: the hotspot IP (e.g. `192.168.137.1`).
-   - **Port**: `10808`.
-   - **Username**: the LAN SOCKS username.
-   - **Password**: the LAN SOCKS password.
-3. Enable **Remote DNS** if available.
-4. Apply the proxy for the desired apps or system-wide.
+SOCKS‑compatible app is required. The **v2rayNG Guide** and **HAPP / Hiddify
+Guide** below the Hotspot sharing card walk through client setup with copy
+buttons for the live address, port, credentials, and URI. Enable **Remote DNS**
+in the client so DNS queries are also routed through the proxy.
 
 ## What to expect
 
