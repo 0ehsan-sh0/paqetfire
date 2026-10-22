@@ -56,8 +56,10 @@ internal static class SecureFileSystem
     public static FileStream OpenTrustedFileForRead(string path, ProtectedDirectoryPolicy policy)
     {
         _ = PrivilegesEnabled.Value;
+        // No backup semantics: with SeBackupPrivilege enabled they would also bypass another
+        // program's sharing mode, so a held file would look readable here but not to Xray.
         var handle = CreateFile(path, GenericRead | ReadControl, FileShare.Read, IntPtr.Zero, FileMode.Open,
-            BackupSemantics | OpenReparsePoint, IntPtr.Zero);
+            OpenReparsePoint, IntPtr.Zero);
         if (handle.IsInvalid)
         {
             throw Failure(path);
