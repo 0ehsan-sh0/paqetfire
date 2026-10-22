@@ -9,6 +9,7 @@ namespace PaqetFire.Broker.Engines;
 public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
 {
     private static readonly TimeSpan ForceKillTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SocksGreetingTimeout = TimeSpan.FromMilliseconds(500);
     private readonly object _stateLock = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly Queue<PaqetProcessLogEntry> _logs = new();
@@ -29,6 +30,9 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
     }
 
     public EngineKind Kind => EngineKind.Paqet;
+
+    /// <summary>Raised when the running process exits without being stopped, so recovery need not wait for a poll.</summary>
+    public event EventHandler? UnexpectedExit;
 
     public ValueTask<EngineStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
@@ -64,12 +68,13 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
                 }
             }
 
+            FileStream? executableLock;
             try
             {
-                await ValidateFilesAtStartAsync(cancellationToken).ConfigureAwait(false);
-                if (await IsEndpointOccupiedAsync(_options.SocksEndpoint, cancellationToken)
-                    .ConfigureAwait(false))
+                executableLock = await ValidateFilesAtStartAsync(cancellationToken).ConfigureAwait(false);
+                if (LoopbackListeners.IsListening(_options.SocksEndpoint))
                 {
+                    executableLock?.Dispose();
                     throw new InvalidOperationException(
                         $"The configured Paqet SOCKS5 endpoint {FormatEndpoint(_options.SocksEndpoint)} " +
                         "is already in use. Stop the other listener or choose another port.");
@@ -82,7 +87,7 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
             }
             catch (Exception error) when (
                 error is IOException or UnauthorizedAccessException or InvalidOperationException or
-                    CryptographicException)
+                    CryptographicException or InvalidDataException)
             {
                 SetState(EngineState.Faulted, error.Message);
                 throw;
@@ -93,7 +98,13 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
             var process = CreateProcess();
             try
             {
-                if (!process.Start())
+                bool started;
+                using (executableLock)
+                {
+                    started = process.Start();
+                }
+
+                if (!started)
                 {
                     throw new InvalidOperationException("Windows did not start the bundled Paqet process.");
                 }
@@ -116,6 +127,12 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
             }
             catch (Exception error)
             {
+                // This kill is ours: it must not be reported as an unexpected exit.
+                lock (_stateLock)
+                {
+                    _expectedExit = true;
+                }
+
                 await TerminateOwnedProcessAsync(process).ConfigureAwait(false);
                 ClearOwnedProcess(process);
 
@@ -304,10 +321,13 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
                     $"Paqet exited with code {process.ExitCode} before its SOCKS5 listener became ready.");
             }
 
+            // Only greet once the listener exists; until then the cheap table poll runs.
+            var listening = LoopbackListeners.IsListening(_options.SocksEndpoint);
             try
             {
-                if (await ProbeSocks5Async(_options.SocksEndpoint, readinessCancellation.Token)
-                    .ConfigureAwait(false))
+                if (listening &&
+                    await ProbeSocks5Async(_options.SocksEndpoint, readinessCancellation.Token)
+                        .ConfigureAwait(false))
                 {
                     return;
                 }
@@ -318,6 +338,10 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
                 throw new TimeoutException(
                     $"Paqet did not expose a SOCKS5 listener at {FormatEndpoint(_options.SocksEndpoint)} " +
                     $"within {_options.ReadinessTimeout}.");
+            }
+            catch (OperationCanceledException) when (!readinessCancellation.IsCancellationRequested)
+            {
+                // One greeting timed out; the overall readiness budget continues.
             }
             catch (SocketException)
             {
@@ -330,7 +354,10 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
 
             try
             {
-                await Task.Delay(_options.ProbeInterval, readinessCancellation.Token).ConfigureAwait(false);
+                await Task.Delay(
+                        listening ? _options.ProbeInterval : LoopbackListeners.PollInterval,
+                        readinessCancellation.Token)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (
                 readinessTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -346,44 +373,21 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
         IPEndPoint endpoint,
         CancellationToken cancellationToken)
     {
+        // A listener that accepts but never answers must not consume the whole readiness budget.
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        attempt.CancelAfter(SocksGreetingTimeout);
         using var client = new TcpClient(endpoint.AddressFamily);
-        await client.ConnectAsync(endpoint.Address, endpoint.Port, cancellationToken).ConfigureAwait(false);
+        await client.ConnectAsync(endpoint.Address, endpoint.Port, attempt.Token).ConfigureAwait(false);
 
         await using var stream = client.GetStream();
         // Readiness only needs a SOCKS5 method selection, so offer both no-auth and
         // username/password instead of handling the engine credentials here.
         var greeting = new byte[] { 0x05, 0x02, 0x00, 0x02 };
-        await stream.WriteAsync(greeting, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(greeting, attempt.Token).ConfigureAwait(false);
 
         var response = new byte[2];
-        await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
+        await stream.ReadExactlyAsync(response, attempt.Token).ConfigureAwait(false);
         return response[0] == 0x05 && response[1] is 0x00 or 0x02;
-    }
-
-    private static async ValueTask<bool> IsEndpointOccupiedAsync(
-        IPEndPoint endpoint,
-        CancellationToken cancellationToken)
-    {
-        using var probeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(350));
-        using var probeCancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken,
-            probeTimeout.Token);
-        using var client = new TcpClient(endpoint.AddressFamily);
-        try
-        {
-            await client.ConnectAsync(endpoint.Address, endpoint.Port, probeCancellation.Token)
-                .ConfigureAwait(false);
-            return true;
-        }
-        catch (SocketException)
-        {
-            return false;
-        }
-        catch (OperationCanceledException) when (
-            probeTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            return false;
-        }
     }
 
     private async Task StopOwnedProcessAsync(Process process, CancellationToken cancellationToken)
@@ -466,6 +470,8 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
                 EngineState.Faulted,
                 $"Paqet exited unexpectedly with code {TryGetExitCode(process)}.");
         }
+
+        UnexpectedExit?.Invoke(this, EventArgs.Empty);
     }
 
     private void RefreshExitedProcessState()
@@ -495,7 +501,8 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
         process.Dispose();
     }
 
-    private async ValueTask ValidateFilesAtStartAsync(CancellationToken cancellationToken)
+    /// <returns>A handle on the verified executable to hold until the process has started.</returns>
+    private async ValueTask<FileStream?> ValidateFilesAtStartAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_options.ExecutablePath))
         {
@@ -514,24 +521,14 @@ public sealed class PaqetProcessAdapter : IEngineAdapter, IAsyncDisposable
         EnsureNotReparsePoint(_options.ExecutablePath, "Paqet executable");
         EnsureNotReparsePoint(_options.ConfigurationPath, "Paqet configuration");
 
-        if (_options.ExpectedExecutableSha256 is { } expectedDigest)
-        {
-            await using var stream = new FileStream(
-                _options.ExecutablePath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                128 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var digest = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
-            if (!CryptographicOperations.FixedTimeEquals(
-                    digest,
-                    Convert.FromHexString(expectedDigest)))
-            {
-                throw new InvalidDataException(
-                    "The bundled Paqet executable failed its pre-launch integrity check.");
-            }
-        }
+        return _options.ExpectedExecutableSha256 is { } expectedDigest
+            ? await VerifiedExecutable.OpenAsync(
+                    _options.ExecutablePath,
+                    expectedDigest,
+                    () => new InvalidDataException("The bundled Paqet executable failed its pre-launch integrity check."),
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : null;
     }
 
     private static void EnsureNotReparsePoint(string path, string label)

@@ -184,6 +184,7 @@ public sealed class ReliabilityTests
         public ValueTask GuardAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask DisconnectAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask RestartTransportAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask RestartTransportAsync(bool includePolicy, CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 
     private sealed class RecordingEngine(EngineKind kind) : IEngineAdapter
@@ -216,6 +217,9 @@ public sealed class ReliabilityTests
             return ValueTask.CompletedTask;
         }
 
+        public ValueTask<bool> SuperviseAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public DateTimeOffset? NextSupervisionDue => null;
+        public ValueTask HandleNetworkChangeAsync(bool resumed, CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask InitializeAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> GetSnapshotAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> SaveSettingsAsync(PaqetFireSettings settings, bool connectAfterSave,

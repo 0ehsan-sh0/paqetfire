@@ -78,6 +78,60 @@ public sealed class ProfileCatalog
         ActiveProfileId,
         DefaultProfileId);
 
+    /// <summary>
+    /// Adds every profile of <paramref name="imported"/> beside the existing ones. Names that
+    /// are already taken get a numbered suffix and colliding IDs get <paramref name="newId"/>;
+    /// existing profiles and the active and default selections are never changed.
+    /// </summary>
+    public ProfileCatalog Merge(ProfileCatalog imported, Func<Guid> newId)
+    {
+        ArgumentNullException.ThrowIfNull(imported);
+        ArgumentNullException.ThrowIfNull(newId);
+        if (_profiles.Length + imported.Profiles.Count > MaximumProfileCount)
+        {
+            throw new ProfileCatalogException(
+                $"The import would exceed {MaximumProfileCount} profiles. Delete some profiles first.");
+        }
+
+        var merged = new List<ConnectionProfile>(_profiles);
+        foreach (var profile in imported.Profiles)
+        {
+            var id = profile.Id;
+            while (id == Guid.Empty || merged.Any(existing => existing.Id == id))
+            {
+                id = newId();
+            }
+
+            var name = FindAvailableName(merged, profile.Settings.ProfileName);
+            merged.Add(new ConnectionProfile(id, profile.Settings with { ProfileName = name }));
+        }
+
+        return new ProfileCatalog(merged, ActiveProfileId, DefaultProfileId);
+    }
+
+    private static string FindAvailableName(IReadOnlyList<ConnectionProfile> profiles, string name)
+    {
+        bool Taken(string candidate) => profiles.Any(profile =>
+            string.Equals(profile.Settings.ProfileName, candidate, StringComparison.OrdinalIgnoreCase));
+
+        if (!Taken(name))
+        {
+            return name;
+        }
+
+        for (var suffix = 2; suffix <= MaximumProfileCount * 2; suffix++)
+        {
+            var ending = $" ({suffix})";
+            var candidate = name[..Math.Min(name.Length, 80 - ending.Length)].TrimEnd() + ending;
+            if (!Taken(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new ProfileCatalogException("A unique profile name could not be generated.");
+    }
+
     internal static ProfileCatalog Rehydrate(
         IEnumerable<ConnectionProfile> profiles,
         Guid activeProfileId,

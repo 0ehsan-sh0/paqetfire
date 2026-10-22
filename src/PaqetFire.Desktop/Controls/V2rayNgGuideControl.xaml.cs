@@ -1,12 +1,18 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using PaqetFire.Desktop.Services;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace PaqetFire.Desktop.Controls;
 
 public sealed partial class V2rayNgGuideControl : UserControl
 {
+    private int qrVersion;
+
     public event EventHandler? BackRequested;
+
+    /// <summary>The saved sharing password cannot be shown; ask the window to generate a new one.</summary>
+    public event EventHandler? RotateCredentialsRequested;
 
     public V2rayNgGuideControl()
     {
@@ -20,10 +26,36 @@ public sealed partial class V2rayNgGuideControl : UserControl
         UsernameBox.Text = username;
         PasswordBox.Text = password;
         SocksUriBox.Text = socksUri;
-        PasswordBox.PlaceholderText = "Re-enter your proxy password on the Routing page";
+        PasswordBox.PlaceholderText = "Saved password is protected; rotate credentials to show a new one";
         CopyPasswordButton.IsEnabled = !string.IsNullOrEmpty(password);
         CopyUriButton.IsEnabled = !string.IsNullOrEmpty(socksUri);
+        QrPlaceholderText.Text = string.IsNullOrEmpty(address)
+            ? "Detect the hotspot on the Routing page to show a QR code."
+            : string.IsNullOrEmpty(password)
+                ? "The saved sharing password is protected and cannot be shown. Rotate credentials to show a QR code, then save on the Routing page."
+                : "Preparing the QR code…";
+        RotateCredentialsButton.Visibility = !string.IsNullOrEmpty(address) && string.IsNullOrEmpty(password)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _ = RenderQrAsync(socksUri);
     }
+
+    private async Task RenderQrAsync(string socksUri)
+    {
+        var version = ++qrVersion;
+        var image = await QrCodeImage.CreateAsync(socksUri);
+        if (version != qrVersion)
+        {
+            return;
+        }
+
+        QrImage.Source = image;
+        QrImage.Visibility = image is null ? Visibility.Collapsed : Visibility.Visible;
+        QrPlaceholder.Visibility = image is null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void RotateCredentialsButton_Click(object sender, RoutedEventArgs e) =>
+        RotateCredentialsRequested?.Invoke(this, EventArgs.Empty);
 
     private void BackButton_Click(object sender, RoutedEventArgs e)
     {

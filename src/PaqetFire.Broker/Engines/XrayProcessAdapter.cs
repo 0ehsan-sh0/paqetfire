@@ -1,13 +1,20 @@
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text;
+using PaqetFire.Broker.RoutingData;
 using PaqetFire.Core.Engines;
 
 namespace PaqetFire.Broker.Engines;
 
 public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
 {
+    private static readonly TimeSpan ForceKillTimeout = TimeSpan.FromSeconds(5);
+    internal const string AssetLocationVariable = "XRAY_LOCATION_ASSET";
     private readonly XrayProcessOptions options;
+    private readonly RoutingDataFileVerifier routingDataVerifier;
+    private RoutingDataSet routingData = RoutingDataSet.Bundled;
+    private byte[]? lastValidatedConfiguration;
     private readonly SemaphoreSlim lifecycleGate = new(1, 1);
     private readonly object stateLock = new();
     private readonly Queue<XrayProcessLogEntry> logs = new();
@@ -18,12 +25,38 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
     private bool expectedExit;
     private bool disposed;
 
-    public XrayProcessAdapter(XrayProcessOptions options)
+    public XrayProcessAdapter(XrayProcessOptions options, RoutingDataFileVerifier? routingDataVerifier = null)
     {
         this.options = options ?? throw new ArgumentNullException(nameof(options));
+        this.routingDataVerifier = routingDataVerifier ?? new RoutingDataFileVerifier();
     }
 
     public EngineKind Kind => EngineKind.Xray;
+
+    /// <summary>Raised when the running process exits without being stopped, so recovery need not wait for a poll.</summary>
+    public event EventHandler? UnexpectedExit;
+
+    /// <summary>The GeoIP/GeoSite set the next start loads; a running process keeps the one it started with.</summary>
+    public RoutingDataSet RoutingData
+    {
+        get
+        {
+            lock (stateLock)
+            {
+                return routingData;
+            }
+        }
+    }
+
+    /// <summary>Selects the data the next start loads, matching the configuration written for it.</summary>
+    public void UseRoutingData(RoutingDataSet set)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        lock (stateLock)
+        {
+            routingData = set;
+        }
+    }
 
     public ValueTask<EngineStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
@@ -67,21 +100,35 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
                 }
             }
 
-            await ValidatePayloadAsync(cancellationToken).ConfigureAwait(false);
-            if (await CanConnectAsync(cancellationToken).ConfigureAwait(false))
+            await using var executableLock = await ValidatePayloadAsync(cancellationToken).ConfigureAwait(false);
+            if (LoopbackListeners.IsListening(options.InboundEndpoint))
             {
                 throw new InvalidOperationException(
                     $"Xray's local SOCKS5 endpoint {options.InboundEndpoint} is already in use.");
             }
 
-            await ValidateConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            var data = RoutingData;
+            // Held until Xray is ready, so the databases it loads are the bytes just verified.
+            await using var dataLease = await OpenRoutingDataAsync(data, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await ValidateConfigurationAsync(data, TimeoutFor(data, options.ValidationTimeout), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (TimeoutException exception) when (data.IsUpdated)
+            {
+                throw new RoutingDataUnavailableException(
+                    "Xray's configuration check did not finish in time with the downloaded routing data.", exception);
+            }
+
             SetState(EngineState.Starting, "Waiting for Xray's local policy endpoint.");
-            var started = CreateProcess(testOnly: false);
+            var started = CreateProcess(options.ConfigurationPath, testOnly: false, data.AssetDirectory);
             if (!started.Start())
             {
                 throw new InvalidOperationException("Windows did not start the bundled Xray process.");
             }
 
+            await executableLock.DisposeAsync().ConfigureAwait(false);
             started.EnableRaisingEvents = true;
             started.Exited += HandleExited;
             lock (stateLock)
@@ -95,15 +142,36 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
             try
             {
                 EngineProcessJob.Assign(started);
-                await WaitUntilReadyAsync(started, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await WaitUntilReadyAsync(started, TimeoutFor(data, options.ReadinessTimeout), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (TimeoutException exception) when (data.IsUpdated)
+                {
+                    throw new RoutingDataUnavailableException(
+                        "Xray did not open its local policy endpoint in time with the downloaded routing data.", exception);
+                }
+
                 SetState(EngineState.Running, "Xray is applying the regional routing policy.");
             }
             catch
             {
-                await TerminateAsync(started).ConfigureAwait(false);
                 lock (stateLock)
                 {
-                    process = null;
+                    expectedExit = true;
+                }
+
+                try
+                {
+                    await TerminateAsync(started).ConfigureAwait(false);
+                }
+                finally
+                {
+                    lock (stateLock)
+                    {
+                        process = null;
+                    }
                 }
 
                 throw;
@@ -147,7 +215,21 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
                 SetStateUnsafe(EngineState.Stopping, "Stopping Xray.");
             }
 
-            await TerminateAsync(owned).ConfigureAwait(false);
+            try
+            {
+                await TerminateAsync(owned).ConfigureAwait(false);
+            }
+            catch (TimeoutException error)
+            {
+                lock (stateLock)
+                {
+                    process = null;
+                    SetStateUnsafe(EngineState.Faulted, error.Message);
+                }
+
+                throw;
+            }
+
             lock (stateLock)
             {
                 process = null;
@@ -186,7 +268,8 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
         }
     }
 
-    private async Task ValidatePayloadAsync(CancellationToken cancellationToken)
+    /// <returns>A handle on the verified executable to hold until the process has started.</returns>
+    private async Task<FileStream> ValidatePayloadAsync(CancellationToken cancellationToken)
     {
         foreach (var path in new[]
                  {
@@ -202,28 +285,105 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
             }
         }
 
-        await using var stream = File.OpenRead(options.ExecutablePath);
-        var actual = Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken));
-        if (!actual.Equals(options.ExpectedExecutableSha256, StringComparison.OrdinalIgnoreCase))
+        return await VerifiedExecutable.OpenAsync(
+                options.ExecutablePath,
+                options.ExpectedExecutableSha256,
+                () => new CryptographicException("The bundled Xray executable failed its SHA-256 integrity check."),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs <c>xray run -test</c> on a probe configuration with <paramref name="assetDirectory"/>
+    /// as the GeoIP/GeoSite location, using the pinned executable.
+    /// </summary>
+    public async Task ValidateRoutingDataAsync(
+        string assetDirectory,
+        string probeConfigurationPath,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        await using var executableLock = await VerifiedExecutable.OpenAsync(
+                options.ExecutablePath,
+                options.ExpectedExecutableSha256,
+                () => new CryptographicException("The bundled Xray executable failed its SHA-256 integrity check."),
+                cancellationToken)
+            .ConfigureAwait(false);
+        using var validation = CreateProcess(probeConfigurationPath, testOnly: true, assetDirectory);
+        await RunValidationAsync(
+                validation,
+                options.UpdatedDataTimeout,
+                cancellationToken,
+                "Xray rejected the downloaded routing data")
+            .ConfigureAwait(false);
+    }
+
+    // A full downloaded data set takes longer to load than the bundled one.
+    private TimeSpan TimeoutFor(RoutingDataSet data, TimeSpan bundled) => TimeoutFor(data, bundled, options.UpdatedDataTimeout);
+
+    internal static TimeSpan TimeoutFor(RoutingDataSet data, TimeSpan bundled, TimeSpan updated) =>
+        data.IsUpdated && updated > bundled ? updated : bundled;
+
+    private async Task<RoutingDataLease> OpenRoutingDataAsync(RoutingDataSet data, CancellationToken cancellationToken)
+    {
+        try
         {
-            throw new CryptographicException("The bundled Xray executable failed its SHA-256 integrity check.");
+            return await routingDataVerifier.OpenAsync(data, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            // The caller retries with the bundled data; the inner exception says whether the files changed.
+            throw new RoutingDataUnavailableException("The downloaded routing data could not be verified for this Xray start.", exception);
         }
     }
 
-    private async Task ValidateConfigurationAsync(CancellationToken cancellationToken)
+    private async Task ValidateConfigurationAsync(RoutingDataSet data, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        using var validation = CreateProcess(testOnly: true);
-        await RunValidationAsync(validation, options.ValidationTimeout, cancellationToken).ConfigureAwait(false);
+        // `xray run -test` loads the GeoIP/GeoSite databases and costs a few hundred
+        // milliseconds. An identical configuration already passed it with the same data,
+        // and the executable and databases are verified before every start.
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(await File.ReadAllBytesAsync(options.ConfigurationPath, cancellationToken)
+            .ConfigureAwait(false));
+        hash.AppendData(Encoding.UTF8.GetBytes("\n" + data.Fingerprint));
+        var digest = hash.GetHashAndReset();
+        lock (stateLock)
+        {
+            if (lastValidatedConfiguration is not null &&
+                CryptographicOperations.FixedTimeEquals(lastValidatedConfiguration, digest))
+            {
+                return;
+            }
+        }
+
+        using var validation = CreateProcess(options.ConfigurationPath, testOnly: true, data.AssetDirectory);
+        await RunValidationAsync(validation, timeout, cancellationToken).ConfigureAwait(false);
+        lock (stateLock)
+        {
+            lastValidatedConfiguration = digest;
+        }
     }
 
     internal static async Task RunValidationAsync(
         Process validation,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string rejection = "Xray rejected the generated regional policy")
     {
         if (!validation.Start())
         {
             throw new InvalidOperationException("Windows could not start Xray's configuration check.");
+        }
+
+        try
+        {
+            // A check left behind by a crashed broker must not outlive it.
+            EngineProcessJob.Assign(validation);
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // The deadline below still terminates it.
         }
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -236,7 +396,7 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
             var output = (await outputTask.ConfigureAwait(false) + " " + await errorTask.ConfigureAwait(false)).Trim();
             if (validation.ExitCode != 0)
             {
-                throw new InvalidDataException($"Xray rejected the generated regional policy: {output}");
+                throw new InvalidDataException($"{rejection}: {output}");
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -245,11 +405,19 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
         }
         finally
         {
-            if (!validation.HasExited)
+            try
             {
-                validation.Kill(entireProcessTree: true);
-                using var cleanupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await validation.WaitForExitAsync(cleanupDeadline.Token).ConfigureAwait(false);
+                if (!validation.HasExited)
+                {
+                    validation.Kill(entireProcessTree: true);
+                    using var cleanupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await validation.WaitForExitAsync(cleanupDeadline.Token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception cleanup) when (
+                cleanup is InvalidOperationException or System.ComponentModel.Win32Exception or OperationCanceledException or NotSupportedException)
+            {
+                // Cleanup must not replace the error that ended the check.
             }
 
             await deadline.CancelAsync().ConfigureAwait(false);
@@ -264,44 +432,70 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
         }
     }
 
-    private Process CreateProcess(bool testOnly)
+    private Process CreateProcess(string configurationPath, bool testOnly, string? assetDirectory)
     {
-        var arguments = $"run {(testOnly ? "-test " : string.Empty)}-config \"{options.ConfigurationPath}\"";
-        return new Process
+        var arguments = $"run {(testOnly ? "-test " : string.Empty)}-config \"{configurationPath}\"";
+        var executableDirectory = Path.GetDirectoryName(options.ExecutablePath)!;
+        var startInfo = new ProcessStartInfo
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = options.ExecutablePath,
-                Arguments = arguments,
-                WorkingDirectory = Path.GetDirectoryName(options.ExecutablePath)!,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            },
+            FileName = options.ExecutablePath,
+            Arguments = arguments,
+            WorkingDirectory = executableDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
+        ApplyEnvironment(startInfo.Environment, assetDirectory ?? executableDirectory);
+        return new Process { StartInfo = startInfo };
     }
 
-    private async Task WaitUntilReadyAsync(Process started, CancellationToken cancellationToken)
+    /// <summary>
+    /// Removes every inherited Xray setting (for example a machine-wide xray.location.asset or
+    /// XRAY_LOCATION_CONFDIR, which could redirect the databases or merge other configuration)
+    /// and sets the asset directory explicitly.
+    /// </summary>
+    internal static void ApplyEnvironment(IDictionary<string, string?> environment, string assetDirectory)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(options.ReadinessTimeout);
-        while (!timeout.Token.IsCancellationRequested)
+        foreach (var key in environment.Keys
+                     .Where(key => key.StartsWith("xray.", StringComparison.OrdinalIgnoreCase) ||
+                                   key.StartsWith("XRAY_", StringComparison.OrdinalIgnoreCase))
+                     .ToArray())
         {
-            if (started.HasExited)
-            {
-                throw new InvalidOperationException($"Xray exited during startup with code {started.ExitCode}.");
-            }
-
-            if (await CanConnectAsync(timeout.Token).ConfigureAwait(false))
-            {
-                return;
-            }
-
-            await Task.Delay(150, timeout.Token).ConfigureAwait(false);
+            environment.Remove(key);
         }
 
-        throw new TimeoutException("Xray did not open its local policy endpoint in time.");
+        environment[AssetLocationVariable] = assetDirectory;
+    }
+
+    private async Task WaitUntilReadyAsync(Process started, TimeSpan readinessTimeout, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(readinessTimeout);
+        try
+        {
+            while (true)
+            {
+                if (started.HasExited)
+                {
+                    throw new InvalidOperationException($"Xray exited during startup with code {started.ExitCode}.");
+                }
+
+                // The listener table shows the socket as soon as Xray binds it; one connect
+                // then confirms that it accepts.
+                if (LoopbackListeners.IsListening(options.InboundEndpoint) &&
+                    await CanConnectAsync(timeout.Token).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                await Task.Delay(LoopbackListeners.PollInterval, timeout.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Xray did not open its local policy endpoint in time.");
+        }
     }
 
     private async Task<bool> CanConnectAsync(CancellationToken cancellationToken)
@@ -310,14 +504,18 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
         {
             using var client = new TcpClient();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromMilliseconds(200));
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(500));
             await client.ConnectAsync(
                 options.InboundEndpoint.Address,
                 options.InboundEndpoint.Port,
                 timeout.Token).ConfigureAwait(false);
             return true;
         }
-        catch (Exception error) when (error is SocketException or OperationCanceledException)
+        catch (SocketException)
+        {
+            return false;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return false;
         }
@@ -325,9 +523,16 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
 
     private async Task PumpAsync(StreamReader reader)
     {
-        while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+        try
         {
-            AppendLog(line);
+            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            {
+                AppendLog(line);
+            }
+        }
+        catch (Exception error) when (error is IOException or ObjectDisposedException)
+        {
+            // Process teardown can close redirected streams while a read is pending.
         }
     }
 
@@ -347,6 +552,7 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
 
     private void HandleExited(object? sender, EventArgs eventArgs)
     {
+        bool unexpected;
         lock (stateLock)
         {
             if (sender is not Process exited || process != exited)
@@ -354,10 +560,16 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
                 return;
             }
 
+            unexpected = !expectedExit;
             SetStateUnsafe(
                 expectedExit ? EngineState.Stopped : EngineState.Faulted,
                 expectedExit ? "Xray is stopped." : $"Xray exited unexpectedly with code {exited.ExitCode}.");
             process = null;
+        }
+
+        if (unexpected)
+        {
+            UnexpectedExit?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -389,13 +601,29 @@ public sealed class XrayProcessAdapter : IEngineAdapter, IAsyncDisposable
 
     private static async Task TerminateAsync(Process process)
     {
-        if (!process.HasExited)
+        try
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                // Bounded like Paqet's stop: callers hold lifecycle gates, so a process that
+                // ignores termination must surface as a fault rather than a hung broker.
+                using var timeout = new CancellationTokenSource(ForceKillTimeout);
+                await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+            }
         }
-
-        process.Dispose();
+        catch (InvalidOperationException)
+        {
+            // The process exited between the state check and termination.
+        }
+        catch (OperationCanceledException error)
+        {
+            throw new TimeoutException("The Xray process tree did not terminate in time.", error);
+        }
+        finally
+        {
+            process.Dispose();
+        }
     }
 }
 

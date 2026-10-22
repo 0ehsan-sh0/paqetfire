@@ -5,7 +5,8 @@ namespace PaqetFire.Broker.Configuration;
 
 public sealed class MachineProfileCatalogStore(
     string catalogPath,
-    IProfileSecretProtector secretProtector) : IMachineProfileCatalogStore
+    IProfileSecretProtector secretProtector,
+    ProtectedDirectory? directory = null) : IMachineProfileCatalogStore
 {
     private readonly string path = ValidatePath(catalogPath);
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -15,6 +16,7 @@ public sealed class MachineProfileCatalogStore(
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ProtectedDirectory.EnsureFor(directory, path);
             if (!File.Exists(path))
             {
                 return null;
@@ -42,7 +44,7 @@ public sealed class MachineProfileCatalogStore(
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            ProtectedDirectory.EnsureFor(directory, path);
             var temporary = path + $".{Guid.NewGuid():N}.new";
             try
             {

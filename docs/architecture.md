@@ -19,7 +19,8 @@ accepts a small, versioned set of typed commands and rejects arbitrary paths,
 arguments, and unvalidated configuration.
 
 Each profile can select a Windows network interface by GUID, or leave it unset
-for automatic selection (Ethernet before Wi-Fi). The desktop preview and broker
+for automatic selection: the interface Windows would use to reach the server,
+falling back to Ethernet before Wi-Fi. The desktop preview and broker
 use the same adapter discovery rules. Gateway MAC lookup is scoped to the
 adapter's local IPv4 address. Preview failures clear earlier network details;
 an unavailable selected interface or unresolved MAC prevents the broker from
@@ -44,21 +45,27 @@ The installed layout is owned by PaqetFire and treated as one product:
         xray\x64\       xray.exe, geoip.dat, geosite.dat, config.json
         proxifyre\x64\  ProxiFyre.exe and dependencies, app-config.json
 %ProgramData%\PaqetFire\
-  settings.json, profiles.json, engine-credentials.json
+  settings.json, profiles.json, engine-credentials.json, broker-state.json
+  routing-data\        downloaded GeoIP/GeoSite releases (optional)
 ```
 
 Each manifest file entry includes a relative path, size, and SHA-256 digest. The
 manifest is not signed; the hashes pin the upstream artifacts. Release CI
-verifies the downloaded archives before packaging, and the broker re-verifies the
-manifest-declared files before every connect and each executable's digest
-immediately before launch. Generated engine configurations are written
+verifies the downloaded archives before packaging. The broker hashes every
+manifest-declared file at startup and re-hashes a file on connect only when its
+volume, file ID, size, or last-write time changed. Each executable is hashed
+through a handle that blocks writes and deletes, held until the process has
+started. Generated engine configurations are written
 atomically beside each engine with a `.bak` copy, restricted to SYSTEM and
 Administrators, and regenerated from the saved profile on every connect.
 
 The three upstream engines remain distinct processes because their runtime and
-driver models are different. Paqet and Xray run in a kill-on-close job object,
-leftover engine processes are stopped when the broker starts, and the service
-restarts automatically after a failure. They are nevertheless internal implementation
+driver models are different. Paqet and Xray run in a kill-on-close job object
+and the service restarts automatically after a failure. Leftover Paqet and Xray
+processes are stopped when the broker starts. A leftover ProxiFyre is kept while
+the kill switch is on or a reconnect is pending, so routed applications stay
+blocked during a broker restart; it is replaced when the broker starts its own,
+or stopped if the route is released without the kill switch. They are nevertheless internal implementation
 components: users install, configure, update, repair, and uninstall PaqetFire
 only.
 
@@ -70,6 +77,18 @@ creates program-scoped firewall rules for `ProxiFyre.exe` (TCP/UDP) and
 `xray.exe` (LAN SOCKS5 TCP/UDP, local subnet only). Before every connect, the
 broker restores any of those four rules that are missing, disabled, or point at
 another path.
+
+Firewall rule repair reads the rule list once, runs in the background at broker
+startup and on connect, reuses a clean result for five minutes, and is awaited
+only just before ProxiFyre starts.
+
+`%ProgramData%` lets standard users create folders, so `%ProgramData%\PaqetFire`
+is secured before any store reads from it: the installer and the broker at every
+start set its owner to SYSTEM and a protected DACL (SYSTEM and Administrators
+full control, Users read). The broker then removes links, hard-linked files, and
+entries with an untrusted owner, and every store re-validates the directory
+through a handle opened without following reparse points before each load or
+save.
 
 Drivers and runtimes are not chained by the MSI. The broker reports Npcap,
 Windows Packet Filter (`NDISRD`), the VC++ runtime, and .NET Framework 4.7.2, and
@@ -92,7 +111,10 @@ route over TCP.
 Npcap and Windows Packet Filter are kernel drivers, not carrier applications,
 so they do not create user-mode traffic that needs a process exclusion.
 
-Before ProxiFyre starts, the broker waits for a SOCKS5 greeting from Paqet and
-for Xray's local listener to accept TCP connections. UDP-associate is not part
+Paqet and Xray start in parallel. Before ProxiFyre starts, the broker waits for
+a SOCKS5 greeting from Paqet and for Xray's local listener, both detected from
+the Windows TCP listener table. ProxiFyre counts as ready shortly after its log
+reports the SOCKS5 local router started, with a fixed two-second wait as the
+fallback. UDP-associate is not part
 of startup readiness; the on-demand connection verification report checks it
 separately.

@@ -88,6 +88,25 @@ public sealed class EngineFirewallRulesTests
     }
 
     [Fact]
+    public async Task ABackgroundRepairIsSharedAndAHealthyResultIsReusedForAWhile()
+    {
+        var store = new InMemoryFirewallRuleStore();
+        var clock = new ManualClock();
+        var rules = new EngineFirewallRules(store, Paths, NullLogger<EngineFirewallRules>.Instance, clock);
+
+        await Task.WhenAll(rules.EnsureRepairedAsync(), rules.EnsureRepairedAsync());
+        var lookups = store.FindCount;
+        await rules.EnsureRepairedAsync();
+
+        Assert.Equal(4, store.ReplaceCount);
+        Assert.Equal(lookups, store.FindCount);
+        clock.Advance(EngineFirewallRules.HealthyCheckLifetime);
+        await rules.EnsureRepairedAsync();
+        Assert.True(store.FindCount > lookups);
+        Assert.Equal(4, store.ReplaceCount);
+    }
+
+    [Fact]
     public void RequiredRulesMatchTheInstallerExceptions()
     {
         var firewall = XNamespace.Get("http://wixtoolset.org/schemas/v4/wxs/firewall");
@@ -122,8 +141,13 @@ internal sealed class InMemoryFirewallRuleStore : IFirewallRuleStore
 
     public string? RejectedName { get; init; }
 
-    public IReadOnlyList<FirewallRule> FindByName(string name) =>
-        Rules.Where(rule => string.Equals(rule.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
+    public int FindCount { get; private set; }
+
+    public IReadOnlyList<FirewallRule> FindByName(string name)
+    {
+        FindCount++;
+        return Rules.Where(rule => string.Equals(rule.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
+    }
 
     public void Replace(FirewallRule rule)
     {

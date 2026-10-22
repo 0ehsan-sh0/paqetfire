@@ -59,7 +59,6 @@ public sealed class NetworkAutomationPolicy
         var now = observation.Timestamp;
         var routeWasActive = IsRouteActive(observation.ConnectionState);
         var networkChanged = HasNetworkChanged(observation.Network);
-        var explicitNetworkChange = observation.Trigger == NetworkAutomationTrigger.NetworkChanged;
         var resumed = observation.Trigger == NetworkAutomationTrigger.Resumed;
         var captivePortalNow = observation.Network?.Connectivity == NetworkConnectivity.CaptivePortal;
         var captivePortalDetected = captivePortalNow && !_captivePortalActive;
@@ -68,8 +67,10 @@ public sealed class NetworkAutomationPolicy
         RememberNetwork(observation.Network);
         _captivePortalActive = captivePortalNow;
 
-        var topologyChanged = networkChanged || explicitNetworkChange;
-        if (topologyChanged)
+        // Only a different network starts a new episode. A NetworkChanged trigger alone
+        // also fires for address renewals on the same network, which must not reset the
+        // retry budget or delay a pending connection.
+        if (networkChanged)
         {
             BeginNewNetworkEpisode();
             DelayUntil(now, _options.NetworkSettleDelay);
@@ -80,20 +81,10 @@ public sealed class NetworkAutomationPolicy
             _connectPending = false;
             _disconnectPending = false;
             DelayUntil(now, _options.ResumeSettleDelay);
-
         }
 
-        if ((topologyChanged || resumed) && routeWasActive)
-        {
-            var restoreReason = resumed
-                ? NetworkAutomationReason.RestoreAfterResume
-                : NetworkAutomationReason.RestoreAfterNetworkChange;
-            var disconnectReason = resumed
-                ? NetworkAutomationReason.ComputerResumed
-                : NetworkAutomationReason.NetworkChanged;
-            RequestRestore(restoreReason);
-            return RequestDisconnect(disconnectReason);
-        }
+        // An active route is not torn down for a network change or resume: the broker
+        // re-detects the network and restarts only the engines whose inputs changed.
 
         if (captivePortalDetected && routeWasActive && observation.IsKillSwitchEnabled)
         {
@@ -140,14 +131,16 @@ public sealed class NetworkAutomationPolicy
             }
         }
 
-        if (ConnectionRecoveryPolicy.RequiresSafeRecovery(
+        // A broken chain is the broker's to repair: it restarts Paqet in place or restores the
+        // safe state itself. A Disconnect from here would mean "the user no longer wants the
+        // route" and cancel that recovery; a Connect would race it.
+        if (ConnectionRecoveryPolicy.Evaluate(
                 observation.ConnectionState,
                 observation.IsKillSwitchEnabled,
-                observation.Engines))
+                observation.Engines) != ConnectionRecoveryAction.None)
         {
             _connectPending = false;
-            RequestRestore(NetworkAutomationReason.RestoreAfterFailure);
-            return RequestDisconnect(NetworkAutomationReason.SafeRecoveryRequired);
+            return None(NetworkAutomationReason.ConnectionTransitionInProgress);
         }
 
         if (observation.ConnectionState == ConnectionState.Connected)
@@ -228,7 +221,7 @@ public sealed class NetworkAutomationPolicy
                 ? NetworkAutomationReason.CaptivePortalGrace
                 : observation.Trigger == NetworkAutomationTrigger.Resumed
                     ? NetworkAutomationReason.ResumeSettleDelay
-                    : networkChanged || explicitNetworkChange
+                    : networkChanged
                         ? NetworkAutomationReason.NetworkSettleDelay
                         : _failedAttempts > 0
                             ? NetworkAutomationReason.RetryBackoff

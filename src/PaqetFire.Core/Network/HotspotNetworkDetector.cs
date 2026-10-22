@@ -8,7 +8,7 @@ public class HotspotNetworkDetector
         return b.Length == 4 && b[0] == 192 && b[1] == 168 && (b[2] == 137 || b[2] == 173);
     }
 
-    public (string Address, string Name)? TryDetect() =>
+    public virtual (string Address, string Name)? TryDetect() =>
         TryDetect(System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces());
 
     public (string Address, string Name)? TryDetect(System.Collections.Generic.IEnumerable<System.Net.NetworkInformation.NetworkInterface> interfaces)

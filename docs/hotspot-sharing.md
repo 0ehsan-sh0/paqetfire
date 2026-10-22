@@ -54,14 +54,16 @@ are restricted to SYSTEM and Administrators with protected Windows ACLs.
 4. Ensure the mobile hotspot is active on the laptop; the hotspot address
    field will populate (usually `192.168.137.1`) and the **SOCKS endpoint** text
    shows the address and port.
-5. Click **Copy URI / QR payload** to copy the `socks5://` URI, **Test listener**
-   to check that the listener is reachable, or **Copy redacted setup** to share
-   the settings without the password.
+5. Scan the QR code on the hotspot card with the phone's SOCKS client, or click
+   **Copy URI** to copy the `socks5://` URI. Use **Test listener** to check that
+   the listener is reachable, or **Copy redacted setup** to share the settings
+   without the password.
 
-After saving or reopening a profile, re-enter the existing proxy password on the
-Routing page to enable URI copying. The desktop cannot retrieve the saved secret
-from the broker. If you enter a different password, save before using it on your
-clients.
+The QR code and URI need the sharing password. The desktop keeps it in memory for
+the rest of the session after you enter, rotate, or save it. After restarting the
+app it cannot read the saved secret back from the broker; use **Rotate
+credentials to show QR**, or re-enter the current password. If you enter a
+different password, save before using it on your clients.
 
 ## Phone setup (SOCKS app required)
 

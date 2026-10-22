@@ -6,7 +6,7 @@ using PaqetFire.Core.Configuration;
 
 namespace PaqetFire.Broker.Configuration;
 
-public sealed class MachineSettingsStore(string settingsPath) : IMachineSettingsStore
+public sealed class MachineSettingsStore(string settingsPath, ProtectedDirectory? directory = null) : IMachineSettingsStore
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("PaqetFire.Settings.v1");
     private static readonly byte[] LanPasswordEntropy = Encoding.UTF8.GetBytes("PaqetFire.LanSocksPassword.v1");
@@ -27,6 +27,7 @@ public sealed class MachineSettingsStore(string settingsPath) : IMachineSettings
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ProtectedDirectory.EnsureFor(directory, _settingsPath);
             if (!File.Exists(_settingsPath))
             {
                 return null;
@@ -69,7 +70,7 @@ public sealed class MachineSettingsStore(string settingsPath) : IMachineSettings
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
+            ProtectedDirectory.EnsureFor(directory, _settingsPath);
             var stored = new StoredSettings(
                 settings with
                 {

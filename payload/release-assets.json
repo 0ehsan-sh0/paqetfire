@@ -15,9 +15,9 @@
     },
     {
       "engine": "ProxiFyre",
-      "version": "2.6.1",
-      "url": "https://github.com/wiresock/proxifyre/releases/download/v2.6.1/ProxiFyre-v2.6.1-x64.zip",
-      "sha256": "86b81504d49194e002acae5c4de7e2e84a79b087cbe1669255bb510e4072abef"
+      "version": "2.6.4",
+      "url": "https://github.com/wiresock/proxifyre/releases/download/v2.6.4/ProxiFyre-v2.6.4-x64.zip",
+      "sha256": "c7da1dc5fdf9aaa7828fbf5c2076c4f612cba7889dcac2e3d06dc2e1dee4c3df"
     }
   ]
 }

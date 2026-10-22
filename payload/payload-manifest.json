@@ -38,7 +38,7 @@
     },
     {
       "engine": "ProxiFyre",
-      "version": "2.6.1",
+      "version": "2.6.4",
       "entryPoint": "engines/proxifyre/x64/ProxiFyre.exe",
       "serviceName": "ProxiFyreService",
       "files": [
@@ -54,8 +54,8 @@
         },
         {
           "path": "engines/proxifyre/x64/NLog.config",
-          "size": 379,
-          "sha256": "bb92b3cf996d7dbcf1b94b34228f80478dd569e2cc84d44bdd994d08018917dc"
+          "size": 546,
+          "sha256": "59bab15613e5f02c878c6bd2360f3169d324e888de0dc4645f7c5960012e0da0"
         },
         {
           "path": "engines/proxifyre/x64/NLog.dll",
@@ -64,13 +64,13 @@
         },
         {
           "path": "engines/proxifyre/x64/ProxiFyre.Configuration.dll",
-          "size": 55296,
-          "sha256": "b07178da3e35e293e66f606745be7280ddab2144b3064d1d008a70bd6371fcd6"
+          "size": 58368,
+          "sha256": "ba9979f02fe6f87d062f149b1a5d6a30ac43830ac7f823e0ce46b22be0145696"
         },
         {
           "path": "engines/proxifyre/x64/ProxiFyre.exe",
-          "size": 105984,
-          "sha256": "b317381d7f61af1c5a697c0de32c7743869843fbf52dd1805e9ebd1a5612741e"
+          "size": 109568,
+          "sha256": "beb7ff5b5283f872c610a6c70abfa9a5949f09c50fc766298776e5798a48ccfc"
         },
         {
           "path": "engines/proxifyre/x64/ProxiFyre.exe.config",
@@ -79,8 +79,8 @@
         },
         {
           "path": "engines/proxifyre/x64/socksify.dll",
-          "size": 1831936,
-          "sha256": "9c5680a36cc818e4e11a1d05ff621dcc5f917d14fe36f3405185228dbed70598"
+          "size": 1851392,
+          "sha256": "71478688111d0d976697db65bd37ed3c17504310562abefc4a1158a871bf4b8e"
         },
         {
           "path": "engines/proxifyre/x64/Topshelf.dll",
@@ -108,11 +108,11 @@
     },
     {
       "id": "vcredist-x64",
-      "version": "14.44.35211.0",
+      "version": "14.51.36247.0",
       "acquisition": "officialDownload",
-      "licenseNotice": "The Microsoft Visual C++ 2015–2022 x64 runtime is downloaded from Microsoft only when requested by the user.",
+      "licenseNotice": "The Microsoft Visual C++ v14 x64 runtime is downloaded from Microsoft only when requested by the user.",
       "officialUri": "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist",
-      "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b"
+      "sha256": "843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c"
     },
     {
       "id": "dotnet-framework",

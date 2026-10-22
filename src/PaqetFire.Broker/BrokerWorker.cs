@@ -1,6 +1,8 @@
 using PaqetFire.Broker.Deployment;
 using PaqetFire.Broker.Diagnostics;
 using PaqetFire.Broker.Ipc;
+using PaqetFire.Broker.Network;
+using PaqetFire.Broker.RoutingData;
 using PaqetFire.Broker.Runtime;
 using PaqetFire.Core.Connections;
 using PaqetFire.Core.Engines;
@@ -14,8 +16,12 @@ public sealed class BrokerWorker(
     PayloadIntegrityInspector payloadInspector,
     IPaqetFireRuntime runtime,
     NamedPipeBrokerServer pipeServer,
-    TunnelWatchdog? tunnelWatchdog = null) : BackgroundService
+    TunnelWatchdog? tunnelWatchdog = null,
+    NetworkChangeMonitor? networkMonitor = null,
+    BrokerSignal? signal = null,
+    RoutingDataService? routingData = null) : BackgroundService
 {
+    private readonly BrokerSignal signal = signal ?? new BrokerSignal();
     private readonly Channel<BrokerEvent> publications = Channel.CreateBounded<BrokerEvent>(
         new BoundedChannelOptions(1)
         {
@@ -26,6 +32,8 @@ public sealed class BrokerWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // The full manifest is hashed once here; connects then re-hash only files that
+        // changed and the executables about to launch.
         var payload = await payloadInspector.InspectAsync(stoppingToken);
         if (payload.State == PayloadInspectionState.Ready)
         {
@@ -45,7 +53,9 @@ public sealed class BrokerWorker(
         var monitorTask = MonitorAsync(stoppingToken);
         var publicationTask = PublishEventsAsync(stoppingToken);
         var watchdogTask = tunnelWatchdog?.RunAsync(stoppingToken) ?? Task.CompletedTask;
-        await Task.WhenAll(pipeTask, monitorTask, publicationTask, watchdogTask);
+        var networkTask = networkMonitor?.RunAsync(stoppingToken) ?? Task.CompletedTask;
+        var routingDataTask = routingData?.RunAsync(stoppingToken) ?? Task.CompletedTask;
+        await Task.WhenAll(pipeTask, monitorTask, publicationTask, watchdogTask, networkTask, routingDataTask);
 
         logger.LogInformation("PaqetFire Broker stopped.");
     }
@@ -67,30 +77,41 @@ public sealed class BrokerWorker(
         }
     }
 
+    /// <summary>How long a busy runtime defers an overdue recovery check.</summary>
+    internal static readonly TimeSpan BusyRetryDelay = TimeSpan.FromMilliseconds(250);
+
+    internal static TimeSpan NextWait(TimeSpan tick, DateTimeOffset? due, DateTimeOffset now, bool supervisionBusy)
+    {
+        var wait = due is { } next && next - now < tick ? next - now : tick;
+        var floor = supervisionBusy ? (BusyRetryDelay < tick ? BusyRetryDelay : tick) : TimeSpan.Zero;
+        return wait < floor ? floor : wait;
+    }
+
     internal async Task MonitorAsync(CancellationToken stoppingToken, TimeSpan? interval = null)
     {
         BrokerSnapshot? previousSnapshot = null;
-        using var timer = new PeriodicTimer(interval ?? TimeSpan.FromSeconds(3));
+        var tick = interval ?? TimeSpan.FromSeconds(3);
+        var supervisionBusy = false;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+                // Wake early for an engine exit, a stage change, or a scheduled recovery attempt.
+                // While another operation holds the runtime, a due attempt cannot run yet, so
+                // an overdue time must not turn this loop into a spin.
+                var wait = NextWait(tick, runtime.NextSupervisionDue, DateTimeOffset.UtcNow, supervisionBusy);
+                await signal.WaitAsync(wait, stoppingToken).ConfigureAwait(false);
+
+                // Recovery decisions are re-made under the runtime gate, so they cannot undo
+                // a connect or restart that completed after this loop last looked.
+                supervisionBusy = !await runtime.SuperviseAsync(stoppingToken).ConfigureAwait(false);
+                if (pipeServer is { HasClients: false })
                 {
-                    return;
+                    previousSnapshot = null;
+                    continue;
                 }
 
                 var snapshot = await runtime.GetSnapshotAsync(stoppingToken).ConfigureAwait(false);
-                if (ConnectionRecoveryPolicy.RequiresSafeRecovery(
-                        snapshot.ConnectionState,
-                        snapshot.IsKillSwitchEnabled,
-                        snapshot.Engines))
-                {
-                    logger.LogWarning(
-                        "The engine chain is unhealthy; restoring the configured safe disconnected state.");
-                    snapshot = await runtime.DisconnectAsync(stoppingToken).ConfigureAwait(false);
-                }
-
                 if (previousSnapshot is not null && HasSamePublishedState(previousSnapshot, snapshot))
                 {
                     previousSnapshot = snapshot;
@@ -156,7 +177,10 @@ public sealed class BrokerWorker(
         previous.IsConfigured == current.IsConfigured &&
         previous.ConnectionState == current.ConnectionState &&
         previous.Tunnel?.State == current.Tunnel?.State &&
+        previous.Progress == current.Progress &&
         string.Equals(previous.StatusMessage, current.StatusMessage, StringComparison.Ordinal) &&
+        string.Equals(previous.OperationWarning, current.OperationWarning, StringComparison.Ordinal) &&
+        previous.RoutingData == current.RoutingData &&
         HasSameSettings(previous.Settings, current.Settings) &&
         previous.Engines.SequenceEqual(current.Engines) &&
         (previous.Prerequisites ?? []).SequenceEqual(current.Prerequisites ?? []) &&
@@ -190,6 +214,7 @@ public sealed class BrokerWorker(
                previous.DnsResolver == current.DnsResolver &&
                previous.FakeDns == current.FakeDns &&
                previous.BlockAds == current.BlockAds &&
+               previous.BlockMalware == current.BlockMalware &&
                previous.BlockQuic == current.BlockQuic &&
                previous.DirectBitTorrent == current.DirectBitTorrent &&
                previous.KillSwitchEnabled == current.KillSwitchEnabled &&

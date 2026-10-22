@@ -21,4 +21,7 @@ public sealed record XrayProcessOptions
     public TimeSpan ReadinessTimeout { get; init; } = TimeSpan.FromSeconds(15);
 
     public TimeSpan ValidationTimeout { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>The check and readiness budget when Xray loads downloaded routing data, which is larger than the bundled data.</summary>
+    public TimeSpan UpdatedDataTimeout { get; init; } = TimeSpan.FromSeconds(45);
 }

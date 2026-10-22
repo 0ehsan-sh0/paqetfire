@@ -4,6 +4,7 @@ using PaqetFire.Core.Connections;
 using PaqetFire.Core.Deployment;
 using PaqetFire.Core.Diagnostics;
 using PaqetFire.Core.Profiles;
+using PaqetFire.Core.RoutingData;
 
 namespace PaqetFire.Core.Ipc;
 
@@ -18,6 +19,7 @@ public enum BrokerCommand
     ExportProfiles,
     GetLiveStats,
     GetDiagnostics,
+    ManageRoutingData,
 }
 
 public enum BrokerMessageType
@@ -50,7 +52,8 @@ public sealed record BrokerRequest(
     BrokerCommand Command,
     PaqetFireSettings? Settings = null,
     bool ConnectAfterSave = false,
-    ProfileAction? ProfileAction = null);
+    ProfileAction? ProfileAction = null,
+    RoutingDataAction? RoutingDataAction = null);
 
 public sealed record BrokerResponse(
     Guid RequestId,
@@ -106,6 +109,28 @@ public sealed record BrokerSnapshot(
     string? OperationWarning = null,
     ConnectionVerificationReport? Verification = null,
     ProfileCatalogView? ProfileCatalog = null,
-    TunnelHealthReport? Tunnel = null);
+    TunnelHealthReport? Tunnel = null,
+    ConnectionProgress? Progress = null,
+    RoutingDataStatus? RoutingData = null);
 
 public sealed record BrokerError(BrokerErrorCode Code, string Message);
+
+/// <summary>The step a connect or transport recovery is performing; published while it runs.</summary>
+public enum ConnectionStage
+{
+    Preparing,
+    VerifyingPayload,
+    StartingTransport,
+    StartingPolicy,
+    StartingCapture,
+    ProbingTunnel,
+    RecoveringTransport,
+}
+
+/// <param name="StartedAt">When the whole operation began, for an elapsed-time display.</param>
+/// <param name="Attempt">The recovery attempt number; 1 for an ordinary connect.</param>
+public sealed record ConnectionProgress(
+    ConnectionStage Stage,
+    DateTimeOffset StartedAt,
+    DateTimeOffset StageStartedAt,
+    int Attempt = 1);

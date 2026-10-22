@@ -1,3 +1,4 @@
+using System.Net;
 using PaqetFire.Core.Network;
 
 namespace PaqetFire.Broker.Network;
@@ -10,9 +11,12 @@ public sealed class NetworkEnvironmentDetector
 
     public NetworkEnvironmentDetector(NetworkAdapterDetector detector) => this.detector = detector;
 
-    public NetworkEnvironment Detect(Guid? selectedInterfaceGuid = null)
+    public NetworkEnvironment Detect(Guid? selectedInterfaceGuid = null) => Detect(selectedInterfaceGuid, null);
+
+    /// <param name="serverAddress">The Paqet server's address when known, so automatic selection follows its route.</param>
+    public NetworkEnvironment Detect(Guid? selectedInterfaceGuid, IPAddress? serverAddress)
     {
-        var detected = detector.Detect(selectedInterfaceGuid);
+        var detected = detector.Detect(selectedInterfaceGuid, serverAddress);
         var adapter = detected.Adapter;
         if (string.IsNullOrWhiteSpace(detected.RouterMac))
         {

@@ -59,7 +59,7 @@ public sealed class TransportDeadlineTests
     }
 
     [Fact]
-    public async Task RequestDeadlineIncludesWaitingForWriteLockAndResetsConnection()
+    public async Task RequestDeadlineIncludesWaitingForWriteLockWithoutResettingConnection()
     {
         var name = "PaqetFire-test-" + Guid.NewGuid();
         await using var server = CreateServer(name);
@@ -85,8 +85,11 @@ public sealed class TransportDeadlineTests
             gate.Release();
         }
 
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await client.GetSnapshotAsync(TimeSpan.FromSeconds(1), deadline.Token));
+        // Nothing was written, so the pipe stays usable: the next request reaches the server.
+        var next = client.GetSnapshotAsync(TimeSpan.FromSeconds(1), deadline.Token).AsTask();
+        var prefix = new byte[4];
+        await server.ReadExactlyAsync(prefix, deadline.Token);
+        await Assert.ThrowsAsync<TimeoutException>(() => next);
     }
 
     private static NamedPipeServerStream CreateServer(string name) => new(

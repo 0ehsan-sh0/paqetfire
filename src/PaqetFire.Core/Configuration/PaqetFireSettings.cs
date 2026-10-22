@@ -38,11 +38,17 @@ public sealed record PaqetFireSettings
 
     public XrayDnsResolver DnsResolver { get; init; } = XrayDnsResolver.Cloudflare;
 
-    public bool FakeDns { get; init; }
+    // On for new profiles: skips one tunnel round trip per new domain.
+    public bool FakeDns { get; init; } = true;
 
     public bool BlockAds { get; init; } = true;
 
-    public bool BlockQuic { get; init; }
+    // Takes effect only with updated routing data, which carries these categories.
+    public bool BlockMalware { get; init; } = true;
+
+    // On for new profiles: QUIC over KCP stacks two retransmission loops, and browsers
+    // fall back to TCP at once. Only tunneled QUIC is blocked.
+    public bool BlockQuic { get; init; } = true;
 
     public bool DirectBitTorrent { get; init; } = true;
 
@@ -104,6 +110,8 @@ public sealed record PaqetFireSettingsView(
 
     public bool FakeDns { get; init; }
 
+    public bool BlockMalware { get; init; }
+
     public static PaqetFireSettingsView FromSettings(PaqetFireSettings settings) => new(
         settings.ProfileName,
         settings.ServerEndpoint,
@@ -137,6 +145,7 @@ public sealed record PaqetFireSettingsView(
         Advanced = settings.Advanced,
         DnsResolver = settings.DnsResolver,
         FakeDns = settings.FakeDns,
+        BlockMalware = settings.BlockMalware,
     };
 }
 
@@ -173,7 +182,8 @@ public sealed record XrayRoutingPolicy(
     LanSocksShare? HotspotShare = null,
     IReadOnlyList<string>? DirectRouteDestinations = null,
     XrayDnsPolicy? Dns = null,
-    EngineSocksCredentials? EngineCredentials = null);
+    EngineSocksCredentials? EngineCredentials = null,
+    bool BlockMalware = false);
 
 /// <param name="DomesticServers">IPv4 resolvers of the active network, used directly for local and direct-routed domains.</param>
 public sealed record XrayDnsPolicy(

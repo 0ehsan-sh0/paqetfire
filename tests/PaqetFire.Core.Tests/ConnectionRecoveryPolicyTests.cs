@@ -76,6 +76,24 @@ public sealed class ConnectionRecoveryPolicyTests
             ConnectionRecoveryPolicy.RequiresSafeRecovery(state, killSwitchEnabled, engines));
     }
 
+    [Theory]
+    [InlineData(EngineState.Faulted)]
+    [InlineData(EngineState.Stopped)]
+    public void CarrierOnlyFaultIsRestartedInPlaceInsteadOfReleased(EngineState paqetState)
+    {
+        EngineStatus[] engines =
+        [
+            Status(EngineKind.Paqet, paqetState),
+            Status(EngineKind.Xray, EngineState.Running),
+            Status(EngineKind.ProxiFyre, EngineState.Running),
+        ];
+        var state = paqetState == EngineState.Faulted ? ConnectionState.Faulted : ConnectionState.Degraded;
+
+        Assert.Equal(ConnectionRecoveryAction.RestartTransport,
+            ConnectionRecoveryPolicy.Evaluate(state, isKillSwitchEnabled: false, engines));
+        Assert.False(ConnectionRecoveryPolicy.RequiresSafeRecovery(state, isKillSwitchEnabled: false, engines));
+    }
+
     private static EngineStatus Status(EngineKind kind, EngineState state) =>
         new(kind, state, "test");
 }

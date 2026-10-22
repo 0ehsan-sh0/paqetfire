@@ -77,6 +77,7 @@ public sealed class ConfigurationActivationTests
             Calls.Add("restart-transport");
             return ValueTask.CompletedTask;
         }
+        public ValueTask RestartTransportAsync(bool includePolicy, CancellationToken token) => RestartTransportAsync(token);
         public ValueTask DisconnectAsync(CancellationToken token)
         {
             Calls.Add("disconnect");

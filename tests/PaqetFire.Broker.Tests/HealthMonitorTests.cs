@@ -68,6 +68,9 @@ public sealed class HealthMonitorTests
                 StatusMessage: count.ToString()));
         }
 
+        public ValueTask<bool> SuperviseAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public DateTimeOffset? NextSupervisionDue => null;
+        public ValueTask HandleNetworkChangeAsync(bool resumed, CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask InitializeAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask<BrokerSnapshot> ConnectAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> DisconnectAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -98,6 +101,9 @@ public sealed class HealthMonitorTests
             return ValueTask.CompletedTask;
         }
 
+        public ValueTask<bool> SuperviseAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public DateTimeOffset? NextSupervisionDue => null;
+        public ValueTask HandleNetworkChangeAsync(bool resumed, CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask InitializeAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask<BrokerSnapshot> GetSnapshotAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
         public ValueTask<BrokerSnapshot> ConnectAsync(CancellationToken cancellationToken) => throw new NotSupportedException();

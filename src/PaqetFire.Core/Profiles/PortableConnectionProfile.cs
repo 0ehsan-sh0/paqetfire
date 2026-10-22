@@ -36,6 +36,7 @@ internal sealed record PortableConnectionProfile
             DirectRouteDestinations = profile.Settings.DirectRouteDestinations,
             BypassLan = profile.Settings.BypassLan,
             BlockAds = profile.Settings.BlockAds,
+            BlockMalware = profile.Settings.BlockMalware,
             BlockQuic = profile.Settings.BlockQuic,
             DirectBitTorrent = profile.Settings.DirectBitTorrent,
         },
@@ -81,6 +82,7 @@ internal sealed record PortableConnectionProfile
             DirectRouteDestinations = Xray.DirectRouteDestinations,
             BypassLan = Xray.BypassLan,
             BlockAds = Xray.BlockAds,
+            BlockMalware = Xray.BlockMalware,
             BlockQuic = Xray.BlockQuic,
             DirectBitTorrent = Xray.DirectBitTorrent,
             RoutingMode = ProxiFyre.RoutingMode,
@@ -118,6 +120,7 @@ internal sealed record PortableXraySettings
     public IReadOnlyList<string> DirectRouteDestinations { get; init; } = [];
     public bool BypassLan { get; init; } = false;
     public bool BlockAds { get; init; } = true;
+    public bool BlockMalware { get; init; }
     public bool BlockQuic { get; init; } = false;
     public bool DirectBitTorrent { get; init; } = true;
 }

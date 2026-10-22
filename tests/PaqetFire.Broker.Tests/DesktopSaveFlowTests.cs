@@ -3,6 +3,7 @@ using PaqetFire.Core.Ipc;
 using PaqetFire.Desktop.Ipc;
 using PaqetFire.Desktop.ViewModels;
 using PaqetFire.Core.Profiles;
+using PaqetFire.Core.RoutingData;
 using Xunit;
 
 namespace PaqetFire.Broker.Tests;
@@ -67,6 +68,7 @@ public sealed class DesktopSaveFlowTests
     private sealed class SaveClient : IBrokerClient
     {
         public event Action<BrokerEvent>? EventReceived { add { } remove { } }
+        public event Action? ConnectionLost { add { } remove { } }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<BrokerSnapshot> Completion { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int SaveCount { get; private set; }
@@ -77,6 +79,9 @@ public sealed class DesktopSaveFlowTests
         public ValueTask<BrokerSnapshot> VerifyConnectionAsync(TimeSpan timeout, CancellationToken cancellationToken) => new(Snapshot());
         public ValueTask<BrokerSnapshot> ManageProfilesAsync(ProfileAction action, TimeSpan timeout, CancellationToken cancellationToken) => new(Snapshot());
         public ValueTask<string> ExportProfilesAsync(TimeSpan timeout, CancellationToken cancellationToken) => new("{}");
+
+        public ValueTask<BrokerSnapshot> ManageRoutingDataAsync(RoutingDataAction action, TimeSpan timeout, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
         public ValueTask<LiveConnectionStats> GetLiveStatsAsync(TimeSpan timeout, CancellationToken cancellationToken) =>
             new(new LiveConnectionStats(DateTimeOffset.UtcNow, IsConnected: false));
         public ValueTask<string> GetDiagnosticsAsync(TimeSpan timeout, CancellationToken cancellationToken) => new("diagnostics");
@@ -84,7 +89,16 @@ public sealed class DesktopSaveFlowTests
         {
             SaveCount++;
             Started.TrySetResult();
-            return new(Completion.Task);
+            return new(StoredAsync(settings));
+        }
+
+        // A real broker answers with the profile it stored.
+        private async Task<BrokerSnapshot> StoredAsync(PaqetFireSettings settings)
+        {
+            var snapshot = await Completion.Task;
+            return snapshot.Settings is null
+                ? snapshot with { Settings = PaqetFireSettingsView.FromSettings(settings) }
+                : snapshot;
         }
     }
 }

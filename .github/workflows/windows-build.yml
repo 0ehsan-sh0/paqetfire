@@ -25,14 +25,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - name: Restore solution
         run: dotnet restore PaqetFire.slnx -r win-x64
       - name: Test core and Windows boundaries
-        run: dotnet test PaqetFire.slnx -c Release -r win-x64 --no-restore
+        run: dotnet test PaqetFire.slnx -c Release --no-restore
       - name: Build desktop and broker
         run: dotnet build PaqetFire.slnx -c Release --no-restore
 
@@ -46,14 +46,14 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Validate installer UX contract
         shell: pwsh
         run: ./installer/Test-InstallerConfiguration.ps1
 
       - name: Set up .NET 10
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -67,7 +67,7 @@ jobs:
       - name: Run tests
         env:
           PAQETFIRE_TEST_PAYLOAD_ROOT: ${{ github.workspace }}/payload
-        run: dotnet test PaqetFire.slnx -c Release -r win-x64 --no-restore
+        run: dotnet test PaqetFire.slnx -c Release --no-restore
 
       - name: Publish desktop app
         run: >-

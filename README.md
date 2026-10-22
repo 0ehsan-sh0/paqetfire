@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2B-0078D4">
   <img alt=".NET" src="https://img.shields.io/badge/.NET-10.0-512BD4">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.6.26-FF6B42">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.6.27-FF6B42">
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-F59E0B">
   <a href="https://github.com/4H1R/paqetfire/actions/workflows/windows-build.yml"><img alt="Windows build" src="https://github.com/4H1R/paqetfire/actions/workflows/windows-build.yml/badge.svg?branch=main"></a>
 </p>
@@ -45,16 +45,20 @@ chain in a safe order.
 
 - Route every supported application or only selected executables.
 - Find installed and running applications with a searchable executable picker.
-- Keep multiple protected profiles, including incomplete profiles that can be selected, edited, or deleted.
+- Keep multiple protected profiles, including incomplete profiles that can be selected, edited, or deleted. Create new ones, and import from a file or the clipboard, either alongside existing profiles or replacing them.
 - Transfer profiles and transport keys in [portable exports grouped by engine](docs/profile-management.md), while keeping SOCKS credentials local to each PC.
 - Tune advanced Paqet packet/KCP settings and restore application defaults with Factory reset.
-- Watch the live session on Overview: connected time, exit IP and country, Paqet traffic rates and totals, and tunnel latency.
+- Follow each connect step on Overview, then watch the live session: connected time, exit IP and country, Paqet traffic rates and totals, and tunnel latency.
 - Independently enable TCP, UDP, IPv4, and IPv6 routing.
 - Lock Paqet, Xray, ProxiFyre, and the broker out of catch-all rules to prevent
   recursive proxy loops.
 - Use the Iran-direct Xray preset or route all destinations through Paqet.
 - Route chosen domains, wildcard subdomains, IP addresses, and CIDR ranges directly.
-- Block advertising domains, block QUIC, or send BitTorrent directly.
+- Block advertising domains (including Persian ad networks with updated routing
+  data), block malware and phishing domains, block QUIC, or send BitTorrent
+  directly.
+- Keep GeoIP/GeoSite routing data current with verified daily updates from
+  Iran-v2ray-rules, falling back to the files bundled with Xray.
 - Keep local routers, printers, and NAS devices reachable with LAN bypass.
 - Optionally fail closed for ProxiFyre-covered applications with the routing
   kill switch.
@@ -64,12 +68,15 @@ chain in a safe order.
 - Verify engine health, the local SOCKS route, routed TCP/public IPv4, routed
   UDP/DNS, and IPv6 on demand; ProxiFyre process state is reported separately
   and is not presented as proof of capture or leak prevention.
-- Apply trusted/untrusted network rules with resume/network-change recovery and bounded reconnect backoff.
+- Stay connected: the broker restarts only the Paqet transport after a crash or stall, adjusts in place to network changes and sleep/resume, and reconnects after a service restart.
+- Apply trusted/untrusted network rules.
 - Store secrets with Windows DPAPI and restrict generated engine configuration
   to `SYSTEM` and Administrators.
-- Rotate sharing credentials, test listener reachability, copy URI/QR payloads,
-  and copy redacted client setup bundles.
-- Minimize to the notification area and optionally connect on launch.
+- Rotate sharing credentials, test listener reachability, scan a QR code or copy
+  the URI, and copy redacted client setup bundles.
+- Run from the notification area with state icons, quick profile switching, and
+  notifications when the route drops or recovers; optionally start with Windows
+  in the background and connect on launch.
 - Install the desktop app, broker, Paqet, Xray, and ProxiFyre as one product.
 
 ## Traffic flow
@@ -105,7 +112,7 @@ SOCKS5 listener, sharing the identical Xray regional and blocking policy.
 - [Npcap](https://npcap.com/#download) for Paqet packet capture.
 - [Windows Packet Filter 3.6.x](https://github.com/wiresock/ndisapi/releases/tag/v3.6.2),
   [.NET Framework 4.7.2+](https://dotnet.microsoft.com/download/dotnet-framework/net472),
-  and the [Microsoft Visual C++ 2015–2022 x64 runtime](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
+  and the [Microsoft Visual C++ v14 x64 runtime](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
   for ProxiFyre.
 
 Paqet, Xray, and ProxiFyre are bundled in release installers. The Diagnostics
@@ -250,7 +257,7 @@ packages are intentionally excluded from Git.
 
 ## Project status
 
-Version 0.6.26 is a usable development preview. The current source includes the
+Version 0.6.27 is a usable development preview. The current source includes the
 native desktop UI, broker service, engine adapters, regional routing, protocol
 selection, kill switch, LAN SOCKS5 sharing, tray behavior, diagnostics, verified
 GitHub release updates, and the WiX installer.
@@ -272,7 +279,7 @@ PaqetFire distributes independently maintained components as an aggregate:
 | --- | ---: | --- |
 | [Paqet](https://github.com/hanselime/paqet) | `v1.0.0-alpha.21` | MIT |
 | [Xray-core](https://github.com/XTLS/Xray-core) | `26.3.27` | MPL-2.0 |
-| [ProxiFyre](https://github.com/wiresock/proxifyre) | `2.6.1` | AGPL-3.0 |
+| [ProxiFyre](https://github.com/wiresock/proxifyre) | `2.6.4` | AGPL-3.0 |
 
 The repository contains the corresponding notices and upstream license texts.
 See [THIRD_PARTY_NOTICES.md](payload/THIRD_PARTY_NOTICES.md) for exact-source

@@ -19,7 +19,8 @@ public sealed class LiveStatsService(
     ITunnelProbe tunnelProbe,
     IGeoIpCountryLookup geoIpLookup,
     ILogger<LiveStatsService> logger,
-    TimeProvider? timeProvider = null) : ILiveStatsService
+    TimeProvider? timeProvider = null,
+    TunnelActivity? activity = null) : ILiveStatsService
 {
     private static readonly TimeSpan LatencyInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan PublicAddressRetryInterval = TimeSpan.FromSeconds(30);
@@ -28,6 +29,7 @@ public sealed class LiveStatsService(
     private readonly IGeoIpCountryLookup geoIpLookup = geoIpLookup;
     private readonly ILogger<LiveStatsService> logger = logger;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private readonly TunnelActivity? activity = activity;
     private readonly Lock sync = new();
     private Session? session;
 
@@ -50,6 +52,10 @@ public sealed class LiveStatsService(
         try
         {
             counters = await trafficStats.QueryAsync(cancellationToken).ConfigureAwait(false);
+            if (counters is not null)
+            {
+                activity?.RecordDownlink(counters.DownlinkBytes, now);
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -141,8 +147,13 @@ public sealed class LiveStatsService(
                     if (needsLatency)
                     {
                         var latency = await owner.tunnelProbe.MeasureLatencyAsync(token).ConfigureAwait(false);
+                        var measuredAt = owner.clock.GetUtcNow();
                         Volatile.Write(ref latencyMilliseconds, latency ?? -1);
-                        Interlocked.Exchange(ref latencyMeasuredAtTicks, owner.clock.GetUtcNow().UtcTicks);
+                        Interlocked.Exchange(ref latencyMeasuredAtTicks, measuredAt.UtcTicks);
+                        if (latency is not null)
+                        {
+                            owner.activity?.RecordLatency(measuredAt);
+                        }
                     }
 
                     if (needsAddress)

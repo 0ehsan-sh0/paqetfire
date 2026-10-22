@@ -3,6 +3,7 @@ using System.Security.Principal;
 using PaqetFire.Broker.Configuration;
 using PaqetFire.Core.Configuration;
 using Xunit;
+using System.Runtime.CompilerServices;
 
 namespace PaqetFire.Broker.Tests;
 
@@ -11,7 +12,10 @@ namespace PaqetFire.Broker.Tests;
 // creation/denied-read tests instead of weakening the product DACL for this fixture.
 public sealed class BrokerIdentityFactAttribute : FactAttribute
 {
-    public BrokerIdentityFactAttribute()
+    public BrokerIdentityFactAttribute(
+        [CallerFilePath] string? sourceFilePath = null,
+        [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         using var identity = WindowsIdentity.GetCurrent();
         if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator) &&

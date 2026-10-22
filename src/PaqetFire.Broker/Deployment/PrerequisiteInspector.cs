@@ -11,7 +11,17 @@ public sealed class PrerequisiteInspector
     private static readonly Uri VisualCppHelp = new("https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist");
     private static readonly Uri DotNetFrameworkHelp = new("https://dotnet.microsoft.com/en-us/download/dotnet-framework/net472");
 
-    public IReadOnlyList<PrerequisiteStatus> Inspect() =>
+    private readonly Func<IReadOnlyList<PrerequisiteStatus>>? inspect;
+
+    public PrerequisiteInspector()
+    {
+    }
+
+    internal PrerequisiteInspector(Func<IReadOnlyList<PrerequisiteStatus>> inspect) => this.inspect = inspect;
+
+    public IReadOnlyList<PrerequisiteStatus> Inspect() => inspect?.Invoke() ?? InspectMachine();
+
+    private static IReadOnlyList<PrerequisiteStatus> InspectMachine() =>
     [
         InspectNpcap(),
         InspectWinpkFilter(),
@@ -77,7 +87,7 @@ public sealed class PrerequisiteInspector
             installed,
             installed
                 ? $"Compatible runtime detected (minimum file version {detected})."
-                : "Required by ProxiFyre. Install the Microsoft Visual C++ 2015–2022 x64 runtime 14.44.35211.0 or newer.",
+                : "Required by ProxiFyre. Install the Microsoft Visual C++ v14 x64 runtime 14.44.35211.0 or newer.",
             VisualCppHelp);
     }
 

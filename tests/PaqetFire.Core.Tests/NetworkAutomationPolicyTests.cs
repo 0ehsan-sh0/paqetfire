@@ -73,45 +73,87 @@ public sealed class NetworkAutomationPolicyTests
     }
 
     [Theory]
-    [InlineData(NetworkAutomationTrigger.NetworkChanged, NetworkAutomationReason.NetworkChanged,
-        NetworkAutomationReason.RestoreAfterNetworkChange)]
-    [InlineData(NetworkAutomationTrigger.Resumed, NetworkAutomationReason.ComputerResumed,
-        NetworkAutomationReason.RestoreAfterResume)]
-    public void ActiveRoute_IsRestartedAfterNetworkOrResumeSettleDelay(
+    [InlineData(NetworkAutomationTrigger.NetworkChanged, "network-a")]
+    [InlineData(NetworkAutomationTrigger.NetworkChanged, "network-b")]
+    [InlineData(NetworkAutomationTrigger.Resumed, "network-a")]
+    public void ActiveRoute_IsLeftToTheBrokerAfterNetworkChangeOrResume(
         NetworkAutomationTrigger trigger,
-        NetworkAutomationReason disconnectReason,
-        NetworkAutomationReason reconnectReason)
+        string networkAfterChange)
     {
         var policy = CreatePolicy(networkDelay: TimeSpan.FromSeconds(5), resumeDelay: TimeSpan.FromSeconds(5));
         policy.Evaluate(Observation(
             Start,
             state: ConnectionState.Connected,
-            settings: DisabledSettings(),
+            settings: EnabledSettings(),
             network: InternetNetwork("network-a"),
             engines: RunningEngines()));
 
-        var disconnect = policy.Evaluate(Observation(
+        var changed = policy.Evaluate(Observation(
             Start.AddSeconds(1),
             trigger,
             ConnectionState.Connected,
-            DisabledSettings(),
-            InternetNetwork("network-a"),
+            EnabledSettings(),
+            InternetNetwork(networkAfterChange),
             engines: RunningEngines()));
-        var settling = policy.Evaluate(Observation(
-            Start.AddSeconds(2),
-            settings: DisabledSettings(),
-            network: InternetNetwork("network-a")));
-        var reconnect = policy.Evaluate(Observation(
-            Start.AddSeconds(6),
-            settings: DisabledSettings(),
-            network: InternetNetwork("network-a")));
+        var later = policy.Evaluate(Observation(
+            Start.AddSeconds(10),
+            state: ConnectionState.Connected,
+            settings: EnabledSettings(),
+            network: InternetNetwork(networkAfterChange),
+            engines: RunningEngines()));
 
-        Assert.Equal(NetworkAutomationAction.Disconnect, disconnect.Action);
-        Assert.Equal(disconnectReason, disconnect.Reason);
-        Assert.Equal(NetworkAutomationAction.None, settling.Action);
-        Assert.Equal(Start.AddSeconds(6), settling.RetryAt);
-        Assert.Equal(NetworkAutomationAction.Connect, reconnect.Action);
-        Assert.Equal(reconnectReason, reconnect.Reason);
+        // The broker restarts the affected engines in place; no disconnect/reconnect cycle.
+        Assert.Equal(NetworkAutomationAction.None, changed.Action);
+        Assert.Equal(NetworkAutomationReason.AlreadyConnected, changed.Reason);
+        Assert.Equal(NetworkAutomationAction.None, later.Action);
+    }
+
+    [Fact]
+    public void AddressRenewalOnTheSameNetwork_KeepsTheRetryBudgetAndDelay()
+    {
+        var policy = CreatePolicy(
+            networkDelay: TimeSpan.FromSeconds(10),
+            initialBackoff: TimeSpan.FromSeconds(2),
+            maximumAttempts: 2);
+        policy.Evaluate(Observation(Start, settings: EnabledSettings(), network: InternetNetwork("cafe")));
+        policy.Evaluate(Observation(
+            Start.AddSeconds(1),
+            NetworkAutomationTrigger.ConnectionAttemptFailed,
+            settings: EnabledSettings(),
+            network: InternetNetwork("cafe")));
+
+        var renewal = policy.Evaluate(Observation(
+            Start.AddSeconds(4),
+            NetworkAutomationTrigger.NetworkChanged,
+            settings: EnabledSettings(),
+            network: InternetNetwork("cafe")));
+
+        // A NetworkChanged event for the same network neither resets the attempt count
+        // nor imposes the new-network settle delay.
+        Assert.Equal(NetworkAutomationAction.Connect, renewal.Action);
+        Assert.Equal(2, renewal.AttemptNumber);
+    }
+
+    [Fact]
+    public void CarrierOnlyFault_IsLeftToTheBrokersTransportRecovery()
+    {
+        var policy = CreatePolicy();
+        EngineStatus[] carrierDown =
+        [
+            Status(EngineKind.Paqet, EngineState.Faulted),
+            Status(EngineKind.Xray, EngineState.Running),
+            Status(EngineKind.ProxiFyre, EngineState.Running),
+        ];
+
+        var decision = policy.Evaluate(Observation(
+            Start,
+            state: ConnectionState.Faulted,
+            settings: EnabledSettings(),
+            network: InternetNetwork("office"),
+            engines: carrierDown));
+
+        Assert.Equal(NetworkAutomationAction.None, decision.Action);
+        Assert.Equal(NetworkAutomationReason.ConnectionTransitionInProgress, decision.Reason);
     }
 
     [Fact]
@@ -290,8 +332,10 @@ public sealed class NetworkAutomationPolicyTests
         Assert.Equal(NetworkAutomationReason.RetryLimitReached, exhausted.Reason);
     }
 
-    [Fact]
-    public void BrokenEngineChain_UsesExistingSafeRecoveryPolicyBeforeReconnect()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BrokenEngineChain_IsLeftToTheBrokerAndNeverDisconnectedFromHere(bool automationEnabled)
     {
         var policy = CreatePolicy();
         EngineStatus[] brokenEngines =
@@ -300,22 +344,25 @@ public sealed class NetworkAutomationPolicyTests
             Status(EngineKind.Xray, EngineState.Faulted),
             Status(EngineKind.ProxiFyre, EngineState.Stopped),
         ];
+        var settings = automationEnabled ? EnabledSettings() : DisabledSettings();
 
-        var recover = policy.Evaluate(Observation(
+        var broken = policy.Evaluate(Observation(
             Start,
             state: ConnectionState.Faulted,
-            settings: DisabledSettings(),
+            settings: settings,
             network: InternetNetwork("office"),
             engines: brokenEngines));
-        var reconnect = policy.Evaluate(Observation(
+        var afterBrokerRecovery = policy.Evaluate(Observation(
             Start.AddSeconds(1),
             settings: DisabledSettings(),
             network: InternetNetwork("office")));
 
-        Assert.Equal(NetworkAutomationAction.Disconnect, recover.Action);
-        Assert.Equal(NetworkAutomationReason.SafeRecoveryRequired, recover.Reason);
-        Assert.Equal(NetworkAutomationAction.Connect, reconnect.Action);
-        Assert.Equal(NetworkAutomationReason.RestoreAfterFailure, reconnect.Reason);
+        // A Disconnect now means "the user no longer wants the route" and would cancel the
+        // broker's own recovery, so the policy never issues one for a broken chain.
+        Assert.Equal(NetworkAutomationAction.None, broken.Action);
+        Assert.Equal(NetworkAutomationReason.ConnectionTransitionInProgress, broken.Reason);
+        Assert.Equal(NetworkAutomationAction.None, afterBrokerRecovery.Action);
+        Assert.Equal(NetworkAutomationReason.AutomationDisabled, afterBrokerRecovery.Reason);
     }
 
     [Fact]

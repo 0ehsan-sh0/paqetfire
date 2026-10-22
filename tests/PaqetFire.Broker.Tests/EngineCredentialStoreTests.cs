@@ -1,13 +1,17 @@
 using System.Security.Principal;
 using PaqetFire.Broker.Configuration;
 using Xunit;
+using System.Runtime.CompilerServices;
 
 namespace PaqetFire.Broker.Tests;
 
 // The store writes SYSTEM/Administrators-only files, which a standard user cannot read back.
 public sealed class ElevatedFactAttribute : FactAttribute
 {
-    public ElevatedFactAttribute()
+    public ElevatedFactAttribute(
+        [CallerFilePath] string? sourceFilePath = null,
+        [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         using var identity = WindowsIdentity.GetCurrent();
         if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))

@@ -20,10 +20,10 @@ public sealed class PrerequisiteInstallerService : IDisposable
                 path => $"/i \"{path}\" /passive /norestart"),
             ["vcredist-x64"] = new(
                 "Microsoft Visual C++ runtime",
-                new Uri("https://download.visualstudio.microsoft.com/download/pr/0b44c2d1-8944-4834-a01a-c9a225f8088a/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe"),
+                new Uri("https://download.visualstudio.microsoft.com/download/pr/ebdab8e5-1d7b-4d9f-a11b-cbb1720c3b12/843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C/VC_redist.x64.exe"),
                 "VC_redist.x64.exe",
-                25_635_768,
-                "CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B",
+                18_731_856,
+                "843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C",
                 null,
                 path => $"/install /passive /norestart"),
         };

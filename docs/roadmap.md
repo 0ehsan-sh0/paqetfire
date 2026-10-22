@@ -11,12 +11,11 @@ Open work only; shipped changes are recorded in [release notes](releases/).
 
 ## Reliability
 
-- React to network changes and sleep/resume in the broker. Today the desktop app
-  drives that; the broker only recovers once the tunnel watchdog sees a stall.
 - Check Paqet client/server version compatibility.
 - One-click rollback to the last known-good engine configuration (the `.bak`
   copies already exist).
-- Crash-safe connection-state journal for interrupted upgrades and restarts.
+- Journal in-flight transitions for interrupted upgrades. The intent to stay
+  connected already survives broker restarts.
 
 ## Leak validation
 
@@ -28,7 +27,8 @@ Open work only; shipped changes are recorded in [release notes](releases/).
 
 ## User experience
 
-- Guided first-run server setup with connection testing.
+- Test the Paqet handshake against the server from the setup checklist, not
+  only ICMP reachability.
 - Localization and explicit light/dark theme support.
 - Optional routing-decision diagnostics using Xray per-rule webhooks, with a
   broker-owned authenticated receiver and destination redaction.

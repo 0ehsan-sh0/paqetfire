@@ -10,6 +10,10 @@ public enum ProfileActionKind
     ImportRedacted,
     Import,
     FactoryReset,
+    // Adds a new profile with default settings, named by Name.
+    Create,
+    // Adds the profiles in Payload beside the existing ones instead of replacing the catalog.
+    ImportMerge,
 }
 
 public sealed record ProfileAction(

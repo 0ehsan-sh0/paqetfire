@@ -6,6 +6,8 @@ namespace PaqetFire.Broker.Engines;
 
 internal static class BundledEngineOptions
 {
+    public const string XrayVersion = "26.3.27";
+
     public static PaqetProcessOptions CreatePaqet(RuntimePaths paths) => new()
     {
         ExecutablePath = paths.PaqetExecutablePath,
@@ -24,7 +26,7 @@ internal static class BundledEngineOptions
         ConfigurationPath = paths.XrayConfigurationPath,
         GeoIpPath = paths.XrayGeoIpPath,
         GeoSitePath = paths.XrayGeoSitePath,
-        Version = "26.3.27",
+        Version = XrayVersion,
         ExpectedExecutableSha256 = "15c2d007954ac53ba69b80ec91242786b3c0b71d52649165b4ca1d5cc96ef8f1",
         InboundEndpoint = new IPEndPoint(IPAddress.Loopback, XrayJsonConfigurationWriter.InboundPort),
         ReadinessTimeout = TimeSpan.FromSeconds(15),
@@ -34,8 +36,8 @@ internal static class BundledEngineOptions
     {
         ExecutablePath = paths.ProxiFyreExecutablePath,
         ConfigurationPath = paths.ProxiFyreConfigurationPath,
-        Version = "2.6.1",
-        ExpectedExecutableSha256 = "b317381d7f61af1c5a697c0de32c7743869843fbf52dd1805e9ebd1a5612741e",
+        Version = "2.6.4",
+        ExpectedExecutableSha256 = "beb7ff5b5283f872c610a6c70abfa9a5949f09c50fc766298776e5798a48ccfc",
         ReadinessTimeout = TimeSpan.FromSeconds(8),
     };
 }

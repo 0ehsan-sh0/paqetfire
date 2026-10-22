@@ -9,6 +9,7 @@ using PaqetFire.Core.Connections;
 using PaqetFire.Core.Deployment;
 using PaqetFire.Core.Diagnostics;
 using PaqetFire.Core.Engines;
+using PaqetFire.Core.RoutingData;
 
 namespace PaqetFire.Broker.Diagnostics;
 
@@ -22,7 +23,9 @@ public sealed record DiagnosticBundleInput(
     DiagnosticNetwork? Network,
     ConnectionVerificationReport? Verification,
     IReadOnlyList<string> RecentLogs,
-    IReadOnlyList<string?> Secrets);
+    IReadOnlyList<string?> Secrets,
+    IReadOnlyList<string>? Notes = null,
+    RoutingDataStatus? RoutingData = null);
 
 public sealed record DiagnosticNetwork(
     string InterfaceName,
@@ -59,12 +62,33 @@ public static class DiagnosticBundle
                 $"{engine.Engine}: {engine.State} · {engine.Version ?? "unknown version"} · {engine.Endpoint ?? "no endpoint"}{engineDetail}");
         }
 
+        foreach (var note in input.Notes ?? [])
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"Note: {note}");
+        }
+
         Section(text, "Installation");
         text.AppendLine(CultureInfo.InvariantCulture, $"Engine payload: {input.PayloadState}");
         foreach (var prerequisite in input.Prerequisites)
         {
             text.AppendLine(CultureInfo.InvariantCulture,
                 $"{prerequisite.DisplayName}: {(prerequisite.IsInstalled ? "installed" : "missing")} · {prerequisite.Detail}");
+        }
+
+        if (input.RoutingData is { } data)
+        {
+            var installed = data.InstalledAt is { } installedAt
+                ? string.Create(CultureInfo.InvariantCulture, $" · installed {installedAt:yyyy-MM-dd HH:mm}Z")
+                : string.Empty;
+            var checkedAt = data.LastCheckedAt is { } lastChecked
+                ? string.Create(CultureInfo.InvariantCulture, $"{lastChecked:yyyy-MM-dd HH:mm}Z")
+                : "never";
+            text.AppendLine(CultureInfo.InvariantCulture,
+                $"Routing data: {data.Origin} · {data.Version}{installed} · last checked {checkedAt} · automatic updates {OnOff(data.AutomaticUpdates)}{(data.IsUpdating ? " · updating" : string.Empty)}");
+            if (data.LastError is { } routingDataError)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"Routing data error: {routingDataError}");
+            }
         }
 
         Section(text, "Network");
@@ -131,7 +155,7 @@ public static class DiagnosticBundle
         text.AppendLine(CultureInfo.InvariantCulture,
             $"Protocols: TCP {OnOff(settings.RouteTcp)} · UDP {OnOff(settings.RouteUdp)} · IPv4 {OnOff(settings.RouteIpv4)} · IPv6 {OnOff(settings.RouteIpv6)} · LAN bypass {OnOff(settings.BypassLan)}");
         text.AppendLine(CultureInfo.InvariantCulture,
-            $"Xray: {settings.RegionalPreset} · {settings.DomainStrategy} · DNS {settings.DnsResolver} · FakeDNS {OnOff(settings.FakeDns)} · ads blocked {OnOff(settings.BlockAds)} · QUIC blocked {OnOff(settings.BlockQuic)} · BitTorrent direct {OnOff(settings.DirectBitTorrent)}");
+            $"Xray: {settings.RegionalPreset} · {settings.DomainStrategy} · DNS {settings.DnsResolver} · FakeDNS {OnOff(settings.FakeDns)} · ads blocked {OnOff(settings.BlockAds)} · malware blocked {OnOff(settings.BlockMalware)} · QUIC blocked {OnOff(settings.BlockQuic)} · BitTorrent direct {OnOff(settings.DirectBitTorrent)}");
         text.AppendLine(CultureInfo.InvariantCulture,
             $"Kill switch: {OnOff(settings.KillSwitchEnabled)} · LAN share {OnOff(settings.ShareWithLan)} ({settings.LanSocksPort}) · hotspot share {OnOff(settings.ShareViaHotspot)} ({settings.HotspotSocksPort})");
         text.AppendLine(CultureInfo.InvariantCulture,

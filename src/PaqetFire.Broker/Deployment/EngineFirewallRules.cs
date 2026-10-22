@@ -21,6 +21,11 @@ public interface IFirewallRuleStore
 {
     IReadOnlyList<FirewallRule> FindByName(string name);
 
+    /// <summary>Looks up several names at once; names without rules may be absent from the result.</summary>
+    IReadOnlyDictionary<string, IReadOnlyList<FirewallRule>> FindByNames(IReadOnlyCollection<string> names) =>
+        names.Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(name => name, FindByName, StringComparer.OrdinalIgnoreCase);
+
     void Replace(FirewallRule rule);
 }
 
@@ -33,8 +38,18 @@ public interface IFirewallRuleStore
 public sealed class EngineFirewallRules(
     IFirewallRuleStore store,
     RuntimePaths paths,
-    ILogger<EngineFirewallRules> logger)
+    ILogger<EngineFirewallRules> logger,
+    TimeProvider? timeProvider = null)
 {
+    // Reading the rule collection is slow COM work; a recent clean check is trusted for a
+    // few minutes so reconnects and recoveries do not repeat it.
+    public static readonly TimeSpan HealthyCheckLifetime = TimeSpan.FromMinutes(5);
+
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private readonly Lock sync = new();
+    private Task? running;
+    private DateTimeOffset? healthyAt;
+
     // Names and scopes must stay identical to installer/PaqetFire.Installer/Package.wxs so that
     // uninstalling the MSI also removes rules the broker restored.
     public static IReadOnlyList<FirewallRule> Required(RuntimePaths paths) =>
@@ -53,13 +68,56 @@ public sealed class EngineFirewallRules(
             paths.ProxiFyreExecutablePath, FirewallProtocol.Udp, "*"),
     ];
 
-    public void Repair()
+    /// <summary>
+    /// Starts a repair in the background unless one is running or a recent check found
+    /// every rule intact. Await the result only where the rules are needed: before ProxiFyre starts.
+    /// </summary>
+    public Task EnsureRepairedAsync()
     {
-        foreach (var rule in Required(paths))
+        lock (sync)
+        {
+            if (running is { IsCompleted: false })
+            {
+                return running;
+            }
+
+            if (healthyAt is { } checkedAt && clock.GetUtcNow() - checkedAt < HealthyCheckLifetime)
+            {
+                return Task.CompletedTask;
+            }
+
+            return running = Task.Run(() =>
+            {
+                var healthy = Repair();
+                lock (sync)
+                {
+                    healthyAt = healthy ? clock.GetUtcNow() : null;
+                }
+            });
+        }
+    }
+
+    /// <returns>True when every rule was already intact or has been restored.</returns>
+    public bool Repair()
+    {
+        var required = Required(paths);
+        IReadOnlyDictionary<string, IReadOnlyList<FirewallRule>> existingRules;
+        try
+        {
+            existingRules = store.FindByNames(required.Select(rule => rule.Name).ToArray());
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "The Windows Firewall rules could not be read.");
+            return false;
+        }
+
+        var healthy = true;
+        foreach (var rule in required)
         {
             try
             {
-                var existing = store.FindByName(rule.Name);
+                var existing = existingRules.GetValueOrDefault(rule.Name) ?? [];
                 if (existing.Count == 1 && Satisfies(existing[0], rule))
                 {
                     continue;
@@ -70,9 +128,12 @@ public sealed class EngineFirewallRules(
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
+                healthy = false;
                 logger.LogWarning(exception, "The Windows Firewall rule '{Rule}' could not be restored.", rule.Name);
             }
         }
+
+        return healthy;
     }
 
     private static bool Satisfies(FirewallRule actual, FirewallRule required) =>

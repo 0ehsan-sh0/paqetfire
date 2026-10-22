@@ -1,4 +1,5 @@
 using PaqetFire.Core.Connections;
+using PaqetFire.Core.Ipc;
 
 namespace PaqetFire.Broker.Runtime;
 
@@ -12,7 +13,8 @@ public static class ConfigurationActivation
         bool stopCurrentRoute,
         bool enableGuard,
         bool reconnect,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<ConnectionStage>? stageStarted = null)
     {
         await persist().ConfigureAwait(false);
         try
@@ -22,7 +24,7 @@ public static class ConfigurationActivation
             if (enableGuard)
                 await controller.GuardAsync(cancellationToken).ConfigureAwait(false);
             if (reconnect)
-                await controller.ConnectAsync(cancellationToken).ConfigureAwait(false);
+                await controller.ConnectAsync(stageStarted, cancellationToken).ConfigureAwait(false);
             return null;
         }
         catch (Exception error)

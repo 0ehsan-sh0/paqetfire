@@ -1,4 +1,6 @@
+using System.Runtime.ExceptionServices;
 using PaqetFire.Core.Engines;
+using PaqetFire.Core.Ipc;
 
 namespace PaqetFire.Core.Connections;
 
@@ -68,7 +70,9 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             DateTimeOffset.UtcNow);
     }
 
-    public async ValueTask ConnectAsync(CancellationToken cancellationToken)
+    public ValueTask ConnectAsync(CancellationToken cancellationToken) => ConnectAsync(null, cancellationToken);
+
+    public async ValueTask ConnectAsync(Action<ConnectionStage>? stageStarted, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -86,51 +90,52 @@ public sealed class ConnectionController : IConnectionController, IDisposable
                 return;
             }
 
-            var paqetStartAttempted = false;
-            var xrayStartAttempted = false;
             var proxiFyreStartAttempted = false;
-            var activeEngine = EngineKind.Paqet;
 
+            // Paqet and Xray start together: Xray only dials Paqet when traffic arrives.
             // ProxiFyre starts last so application capture is only enabled once the
             // complete local SOCKS chain behind it is running.
-            try
+            stageStarted?.Invoke(ConnectionStage.StartingTransport);
+            var (carrierEngine, carrierError) = await StartCarriersAsync(
+                    paqetInitiallyRunning ? null : _paqet,
+                    xrayInitiallyRunning ? null : _xray,
+                    () => stageStarted?.Invoke(ConnectionStage.StartingPolicy),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var failedEngine = carrierEngine;
+            var error = carrierError;
+            if (error is null)
             {
-                if (!paqetInitiallyRunning)
+                try
                 {
-                    paqetStartAttempted = true;
-                    await StartAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
+                    if (!proxiFyreInitiallyRunning)
+                    {
+                        stageStarted?.Invoke(ConnectionStage.StartingCapture);
+                        proxiFyreStartAttempted = true;
+                        await StartAndVerifyAsync(_proxiFyre, cancellationToken).ConfigureAwait(false);
+                    }
                 }
-
-                activeEngine = EngineKind.Xray;
-
-                if (!xrayInitiallyRunning)
+                catch (Exception proxiFyreError)
                 {
-                    xrayStartAttempted = true;
-                    await StartAndVerifyAsync(_xray, cancellationToken).ConfigureAwait(false);
-                }
-
-                activeEngine = EngineKind.ProxiFyre;
-
-                if (!proxiFyreInitiallyRunning)
-                {
-                    proxiFyreStartAttempted = true;
-                    await StartAndVerifyAsync(_proxiFyre, cancellationToken).ConfigureAwait(false);
+                    failedEngine = EngineKind.ProxiFyre;
+                    error = proxiFyreError;
                 }
             }
-            catch (Exception error)
+
+            if (error is not null)
             {
                 var rollbackErrors = await RollBackConnectAsync(
-                        paqetStartAttempted,
-                        xrayStartAttempted,
+                        !paqetInitiallyRunning,
+                        !xrayInitiallyRunning,
                         proxiFyreStartAttempted)
                     .ConfigureAwait(false);
 
                 if (error is OperationCanceledException && rollbackErrors.Count == 0)
                 {
-                    throw;
+                    ExceptionDispatchInfo.Throw(error);
                 }
 
-                throw new ConnectionTransitionException("connect", activeEngine, error, rollbackErrors);
+                throw new ConnectionTransitionException("connect", failedEngine, error, rollbackErrors);
             }
         }
         finally
@@ -252,7 +257,10 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         }
     }
 
-    public async ValueTask RestartTransportAsync(CancellationToken cancellationToken)
+    public ValueTask RestartTransportAsync(CancellationToken cancellationToken) =>
+        RestartTransportAsync(includePolicy: false, cancellationToken);
+
+    public async ValueTask RestartTransportAsync(bool includePolicy, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -260,10 +268,18 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         try
         {
             _transitionState = ConnectionState.Connecting;
+            var stoppingEngine = EngineKind.Xray;
             try
             {
+                // ProxiFyre keeps capturing throughout, so routed connections fail closed
+                // against the stopped Xray listener instead of going direct.
+                if (includePolicy)
+                {
+                    await StopAndVerifyAsync(_xray, cancellationToken).ConfigureAwait(false);
+                }
+
+                stoppingEngine = EngineKind.Paqet;
                 await StopAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
-                await StartAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -271,7 +287,23 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             }
             catch (Exception error)
             {
-                throw new ConnectionTransitionException("restart transport", EngineKind.Paqet, error);
+                throw new ConnectionTransitionException("restart transport", stoppingEngine, error);
+            }
+
+            var (failedEngine, startError) = await StartCarriersAsync(
+                    _paqet,
+                    includePolicy ? _xray : null,
+                    null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (startError is OperationCanceledException)
+            {
+                ExceptionDispatchInfo.Throw(startError);
+            }
+
+            if (startError is not null)
+            {
+                throw new ConnectionTransitionException("restart transport", failedEngine, startError);
             }
         }
         finally
@@ -317,6 +349,68 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         {
             throw new InvalidOperationException(
                 $"The {adapter.Kind} engine reported {status.State} after startup instead of Running.");
+        }
+    }
+
+    /// <summary>
+    /// Starts Paqet and Xray concurrently. A failure cancels the sibling so the caller can
+    /// roll back promptly; the reported error is the root cause rather than that cancellation.
+    /// </summary>
+    private static async ValueTask<(EngineKind Engine, Exception? Error)> StartCarriersAsync(
+        IEngineAdapter? paqet,
+        IEngineAdapter? xray,
+        Action? transportReady,
+        CancellationToken cancellationToken)
+    {
+        using var chain = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var paqetStart = paqet is null ? Task.CompletedTask : StartInChainAsync(paqet, chain);
+        var xrayStart = xray is null ? Task.CompletedTask : StartInChainAsync(xray, chain);
+
+        Exception? paqetError = null;
+        Exception? xrayError = null;
+        try
+        {
+            await paqetStart.ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            paqetError = error;
+        }
+
+        if (paqetError is null)
+        {
+            transportReady?.Invoke();
+        }
+
+        try
+        {
+            await xrayStart.ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            xrayError = error;
+        }
+
+        if (paqetError is not null and not OperationCanceledException || xrayError is null)
+        {
+            return (EngineKind.Paqet, paqetError);
+        }
+
+        return xrayError is not OperationCanceledException || paqetError is null
+            ? (EngineKind.Xray, xrayError)
+            : (EngineKind.Paqet, paqetError);
+
+        static async Task StartInChainAsync(IEngineAdapter adapter, CancellationTokenSource chain)
+        {
+            try
+            {
+                await StartAndVerifyAsync(adapter, chain.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                await chain.CancelAsync().ConfigureAwait(false);
+                throw;
+            }
         }
     }
 

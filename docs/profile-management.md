@@ -55,7 +55,12 @@ A minimal example (the key below is a placeholder):
 }
 ```
 
-Import replaces the catalog and works on a fresh installation. Version 1
+**Import** reads a file or the clipboard, then asks whether to **Add to my
+profiles** (imported profiles are added beside the current ones, renamed on a
+name clash, without changing the active or default profile) or **Replace all
+profiles** (replaces the catalog; requires the route to be disconnected). Both
+work on a fresh installation. **New profile** creates an empty profile with
+default settings. Version 1
 `paqetfire-profile-export` redacted files remain supported; their missing
 transport keys can be entered separately for each profile. New exports omit
 the original PC's adapter GUID, so the target selects its own adapter. If

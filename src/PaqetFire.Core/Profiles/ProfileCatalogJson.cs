@@ -300,6 +300,9 @@ public static class ProfileCatalogJson
 
         public bool BlockAds { get; init; } = true;
 
+        // Profiles saved before this option existed keep it off.
+        public bool BlockMalware { get; init; }
+
         public bool BlockQuic { get; init; }
 
         public bool DirectBitTorrent { get; init; } = true;
@@ -343,6 +346,7 @@ public static class ProfileCatalogJson
             DnsResolver = settings.DnsResolver,
             FakeDns = settings.FakeDns,
             BlockAds = settings.BlockAds,
+            BlockMalware = settings.BlockMalware,
             BlockQuic = settings.BlockQuic,
             DirectBitTorrent = settings.DirectBitTorrent,
             KillSwitchEnabled = settings.KillSwitchEnabled,
@@ -377,6 +381,7 @@ public static class ProfileCatalogJson
             DnsResolver = DnsResolver,
             FakeDns = FakeDns,
             BlockAds = BlockAds,
+            BlockMalware = BlockMalware,
             BlockQuic = BlockQuic,
             DirectBitTorrent = DirectBitTorrent,
             KillSwitchEnabled = KillSwitchEnabled,

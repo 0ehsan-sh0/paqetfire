@@ -14,6 +14,8 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <!-- The UI is English-only; skip localized framework resource assemblies. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Program.cs provides Main so a second launch can be redirected to the running instance. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Platform)' == 'ARM64'">
@@ -28,8 +30,12 @@
       components in self-contained builds, adding tens of megabytes of unused
       binaries to the installer.
     -->
-    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.6" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <!-- WinUI 2.3.9 asks for 2.1.8, which was never published; 2.1.9 is the Windows App SDK 2.5.1 pairing. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+    <!-- MIT-licensed QR encoder for the hotspot share code. -->
+    <PackageReference Include="QRCoder" Version="1.8.1" />
   </ItemGroup>
 
   <ItemGroup>

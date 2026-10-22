@@ -48,6 +48,58 @@ public sealed class TunnelHealthPolicyTests
     }
 
     [Fact]
+    public void AFailedProbeIsRepeatedQuicklySoAStallIsActedOnWithinSeconds()
+    {
+        var policy = new TunnelHealthPolicy();
+        Assert.Equal(TimeSpan.FromSeconds(10), policy.NextProbeDelay);
+
+        policy.Observe(false, Start);
+        Assert.Equal(TimeSpan.FromSeconds(3), policy.NextProbeDelay);
+        policy.Observe(false, Start.AddSeconds(3));
+
+        Assert.Equal(TunnelHealthAction.RestartTransport, policy.Observe(false, Start.AddSeconds(6)));
+        policy.Observe(true, Start.AddSeconds(9));
+        Assert.Equal(TimeSpan.FromSeconds(10), policy.NextProbeDelay);
+    }
+
+    [Fact]
+    public void BackoffIsCappedAtAMinuteWhileOnlineAndResetByANewNetwork()
+    {
+        var policy = new TunnelHealthPolicy();
+        var now = Start;
+        for (var restart = 0; restart < 6; restart++)
+        {
+            while (policy.Observe(false, now) != TunnelHealthAction.RestartTransport)
+            {
+                now = now.AddSeconds(3);
+            }
+
+            policy.RecoveryCompleted();
+        }
+
+        Assert.Equal(now.AddSeconds(60), policy.Report.NextRecoveryAt);
+        Assert.Equal(TunnelHealthAction.None, policy.Observe(false, now.AddSeconds(3)));
+
+        policy.ResetBackoff();
+        Assert.Equal(TunnelHealthAction.RestartTransport, policy.Observe(false, now.AddSeconds(6)));
+        Assert.Equal(1, policy.Report.RecoveryAttempts);
+    }
+
+    [Fact]
+    public void BackoffMayGrowLongerWithoutANetwork()
+    {
+        var policy = new TunnelHealthPolicy(new TunnelHealthOptions
+        {
+            InitialRecoveryBackoff = TimeSpan.FromSeconds(100),
+            FailuresBeforeStalled = 1,
+        });
+
+        policy.Observe(false, Start, networkAvailable: false);
+
+        Assert.Equal(Start.AddSeconds(100), policy.Report.NextRecoveryAt);
+    }
+
+    [Fact]
     public void ASuccessfulProbeClearsTheBackoff()
     {
         var policy = new TunnelHealthPolicy();

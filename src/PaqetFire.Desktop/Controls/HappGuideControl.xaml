@@ -115,6 +115,18 @@
             <Button x:Name="CopyUriButton" Grid.Column="1" Content="Copy SOCKS URI" Click="CopySocksUriButton_Click"
                     Style="{StaticResource AccentButtonStyle}" />
           </Grid>
+          <TextBlock Text="Or tap '+' and choose 'Scan QR code' in the app, then scan this code:"
+                     Opacity="0.8" FontSize="13" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="16">
+            <Image x:Name="QrImage" Width="184" Height="184" Stretch="Uniform" Visibility="Collapsed"
+                   AutomationProperties.Name="QR code of the SOCKS URI" />
+            <StackPanel x:Name="QrPlaceholder" Spacing="8" MaxWidth="440" VerticalAlignment="Center">
+              <TextBlock x:Name="QrPlaceholderText" Text="Detect the hotspot on the Routing page to show a QR code."
+                         TextWrapping="Wrap" Opacity="0.75" />
+              <Button x:Name="RotateCredentialsButton" Content="Rotate credentials to show QR" Visibility="Collapsed"
+                      Click="RotateCredentialsButton_Click" />
+            </StackPanel>
+          </StackPanel>
         </StackPanel>
       </Border>
 

@@ -17,6 +17,12 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
     // only IPv4 placeholders are issued; AAAA lookups fall through to encrypted DNS.
     public const string FakeDnsIpv4Pool = "198.18.0.0/15";
 
+    public static IReadOnlyList<string> MalwareSiteCategories { get; } =
+        ["geosite:malware", "geosite:phishing", "geosite:cryptominers"];
+
+    public static IReadOnlyList<string> MalwareIpCategories { get; } =
+        ["geoip:malware", "geoip:phishing"];
+
     public string Write(XrayRoutingPolicy policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
@@ -246,9 +252,12 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 WriteRule(writer, "domain", ["geosite:category-ads-all"], "block");
             }
 
-            if (policy.BlockQuic)
+            // These categories exist only in updated routing data; the broker sets
+            // BlockMalware only when the installed data provides them.
+            if (policy.BlockMalware)
             {
-                WriteNetworkRule(writer, "udp", "443", "block");
+                WriteRule(writer, "domain", MalwareSiteCategories, "block");
+                WriteRule(writer, "ip", MalwareIpCategories, "block");
             }
 
             if (policy.DirectBitTorrent)
@@ -266,6 +275,13 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             {
                 WriteRule(writer, "domain", ["geosite:category-ir"], "direct");
                 WriteRule(writer, "ip", ["geoip:ir"], "direct");
+            }
+
+            // After every direct rule, so only QUIC headed into the tunnel is blocked;
+            // direct destinations such as Iranian sites keep HTTP/3.
+            if (policy.BlockQuic)
+            {
+                WriteNetworkRule(writer, "udp", "443", "block");
             }
 
             writer.WriteStartObject();

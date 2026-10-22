@@ -1,4 +1,5 @@
 using PaqetFire.Broker.Diagnostics;
+using PaqetFire.Broker.RoutingData;
 using PaqetFire.Broker.Runtime;
 using PaqetFire.Core.Configuration;
 using PaqetFire.Core.Connections;
@@ -9,7 +10,8 @@ namespace PaqetFire.Broker.Ipc;
 
 public sealed class ConnectionBrokerRequestHandler(
     IPaqetFireRuntime runtime,
-    ILiveStatsService liveStats) : IBrokerRequestHandler
+    ILiveStatsService liveStats,
+    RoutingDataService? routingData = null) : IBrokerRequestHandler
 {
     public async ValueTask<BrokerResponse> HandleAsync(
         BrokerRequest request,
@@ -81,6 +83,30 @@ public sealed class ConnectionBrokerRequestHandler(
                         true,
                         Diagnostics: await runtime.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false));
 
+                case BrokerCommand.ManageRoutingData:
+                    if (request.RoutingDataAction is not { } routingDataAction || !Enum.IsDefined(routingDataAction))
+                    {
+                        return BrokerResponse.Failed(
+                            request.RequestId,
+                            BrokerErrorCode.InvalidRequest,
+                            "A routing data action is required.");
+                    }
+
+                    if (routingData is null)
+                    {
+                        return BrokerResponse.Failed(
+                            request.RequestId,
+                            BrokerErrorCode.EngineFailure,
+                            "Routing data updates are not available in this broker.");
+                    }
+
+                    // Update now returns as soon as the download starts; progress and the
+                    // result arrive in snapshots.
+                    await routingData.ApplyAsync(routingDataAction, cancellationToken).ConfigureAwait(false);
+                    return BrokerResponse.Succeeded(
+                        request.RequestId,
+                        await runtime.GetSnapshotAsync(cancellationToken).ConfigureAwait(false));
+
                 case BrokerCommand.GetSnapshot:
                     return BrokerResponse.Succeeded(
                         request.RequestId,
@@ -115,6 +141,13 @@ public sealed class ConnectionBrokerRequestHandler(
                 BrokerErrorCode.ConfigurationInvalid,
                 exception.Message);
         }
+        catch (BrokerOperationCancelledException exception)
+        {
+            return BrokerResponse.Failed(
+                request.RequestId,
+                BrokerErrorCode.Busy,
+                exception.Message);
+        }
         catch (MissingPrerequisiteException exception)
         {
             return BrokerResponse.Failed(
@@ -133,6 +166,13 @@ public sealed class ConnectionBrokerRequestHandler(
                 request.RequestId,
                 BrokerErrorCode.EngineFailure,
                 message);
+        }
+        catch (RoutingDataBusyException exception)
+        {
+            return BrokerResponse.Failed(
+                request.RequestId,
+                BrokerErrorCode.Busy,
+                exception.Message);
         }
         catch (InvalidOperationException exception)
         {

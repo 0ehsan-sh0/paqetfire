@@ -183,9 +183,43 @@ public sealed class ConfigurationTests
         Assert.Equal("IPOnDemand", root.GetProperty("routing").GetProperty("domainStrategy").GetString());
         var rules = root.GetProperty("routing").GetProperty("rules");
         Assert.Equal("block", rules[0].GetProperty("outboundTag").GetString());
-        Assert.Equal("443", rules[1].GetProperty("port").GetString());
-        Assert.Equal("direct", rules[2].GetProperty("outboundTag").GetString());
+        Assert.Equal("direct", rules[1].GetProperty("outboundTag").GetString());
+        Assert.Equal("443", rules[2].GetProperty("port").GetString());
+        Assert.Equal("block", rules[2].GetProperty("outboundTag").GetString());
         Assert.Equal("paqet", rules[3].GetProperty("outboundTag").GetString());
+    }
+
+    [Fact]
+    public void QuicBlock_FollowsRegionalAndCustomDirectRules()
+    {
+        var json = new XrayJsonConfigurationWriter().Write(new XrayRoutingPolicy(
+            RegionalRoutingPreset.IranDirect,
+            XrayDomainStrategy.IPIfNonMatch,
+            BypassLan: true,
+            BlockAds: false,
+            BlockQuic: true,
+            DirectBitTorrent: false,
+            DirectRouteDestinations: ["example.com"]));
+
+        using var document = JsonDocument.Parse(json);
+        var rules = document.RootElement.GetProperty("routing").GetProperty("rules")
+            .EnumerateArray().ToArray();
+        var quicIndex = Array.FindIndex(rules, rule => rule.TryGetProperty("port", out var port) &&
+            port.GetString() == "443");
+        var lastDirectIndex = Array.FindLastIndex(rules, rule =>
+            rule.GetProperty("outboundTag").GetString() == "direct");
+
+        Assert.True(quicIndex > lastDirectIndex);
+        Assert.Equal(rules.Length - 2, quicIndex);
+    }
+
+    [Fact]
+    public void NewProfiles_UseFakeDnsAndBlockTunneledQuic()
+    {
+        var settings = new PaqetFireSettings();
+
+        Assert.True(settings.FakeDns);
+        Assert.True(settings.BlockQuic);
     }
 
     [Fact]

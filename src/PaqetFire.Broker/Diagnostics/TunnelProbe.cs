@@ -30,6 +30,10 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
         new("http://connectivitycheck.gstatic.com/generate_204"),
     ];
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(6);
+
+    // Short enough that three failed probes fit in about twelve seconds; a busy tunnel
+    // that misses it is still recognized by its downlink traffic.
+    private static readonly TimeSpan ReachabilityTimeout = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan WarmConnectionLifetime = TimeSpan.FromSeconds(20);
 
     private readonly HttpClient client;
@@ -62,11 +66,11 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
                 Credentials = new NetworkCredential(credentials.Username, credentials.Password),
             },
             UseProxy = true,
-            ConnectTimeout = ProbeTimeout,
+            ConnectTimeout = ReachabilityTimeout,
             PooledConnectionLifetime = TimeSpan.Zero,
         })
         {
-            Timeout = ProbeTimeout,
+            Timeout = ReachabilityTimeout,
         };
     }
 

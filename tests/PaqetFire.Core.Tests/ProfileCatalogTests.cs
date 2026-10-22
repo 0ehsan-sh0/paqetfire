@@ -59,6 +59,41 @@ public sealed class ProfileCatalogTests
     }
 
     [Fact]
+    public void MergeAddsImportedProfilesBesideExistingOnesWithoutChangingSelection()
+    {
+        var catalog = ProfileCatalog.Create(HomeId, Settings("Home") with { TransportKey = "home-key" })
+            .Apply(new ProfileCatalogChange.Add(WorkId, Settings("Work"), MakeActive: true));
+        var imported = ProfileCatalog.Create(HomeId, Settings("home") with { TransportKey = "imported-key" })
+            .Apply(new ProfileCatalogChange.Add(CopyId, Settings("Travel")))
+            .Apply(new ProfileCatalogChange.MakeDefault(CopyId));
+        var newIds = new Queue<Guid>([Guid.Parse("44444444-4444-4444-4444-444444444444")]);
+
+        var merged = catalog.Merge(imported, newIds.Dequeue);
+
+        Assert.Equal(["Home", "Work", "home (2)", "Travel"], merged.Profiles.Select(profile => profile.Settings.ProfileName));
+        Assert.Equal("home-key", merged.Profiles[0].Settings.TransportKey);
+        // The colliding ID is replaced; a free one is kept.
+        Assert.Equal(Guid.Parse("44444444-4444-4444-4444-444444444444"), merged.Profiles[2].Id);
+        Assert.Equal("imported-key", merged.Profiles[2].Settings.TransportKey);
+        Assert.Equal(CopyId, merged.Profiles[3].Id);
+        Assert.Equal(WorkId, merged.ActiveProfileId);
+        Assert.Equal(HomeId, merged.DefaultProfileId);
+    }
+
+    [Fact]
+    public void MergeRejectsImportsBeyondTheProfileLimit()
+    {
+        var catalog = ProfileCatalog.Create(HomeId, Settings("Home"));
+        for (var index = 1; index < ProfileCatalog.MaximumProfileCount; index++)
+        {
+            catalog = catalog.Apply(new ProfileCatalogChange.Add(Guid.NewGuid(), Settings($"Profile {index}")));
+        }
+
+        Assert.Throws<ProfileCatalogException>(() =>
+            catalog.Merge(ProfileCatalog.Create(WorkId, Settings("Work")), Guid.NewGuid));
+    }
+
+    [Fact]
     public void InvalidEditsAreRejectedWithoutMutatingTheCatalog()
     {
         var catalog = ProfileCatalog.Create(HomeId, Settings("Home"))

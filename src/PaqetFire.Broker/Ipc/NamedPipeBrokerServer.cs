@@ -8,15 +8,19 @@ using PaqetFire.Core.Ipc;
 
 namespace PaqetFire.Broker.Ipc;
 
+/// <param name="pipeName">Overrides the protocol pipe name; tests use a private name.</param>
 public sealed class NamedPipeBrokerServer(
     IBrokerRequestHandler requestHandler,
-    ILogger<NamedPipeBrokerServer> logger)
+    ILogger<NamedPipeBrokerServer> logger,
+    string? pipeName = null)
 {
     private const int MaxConcurrentClients = 1;
+    private const int MaxConcurrentRequests = 8;
     private const int BufferSize = 16 * 1024;
     private static readonly TimeSpan ListenerRetryDelay = TimeSpan.FromSeconds(1);
 
     private readonly ConcurrentDictionary<long, ClientConnection> clients = new();
+    private readonly ConcurrentDictionary<Task, byte> runningRequests = new();
     private long nextClientId;
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -28,7 +32,7 @@ public sealed class NamedPipeBrokerServer(
                 NamedPipeServerStream pipe;
                 try
                 {
-                    pipe = CreatePipe();
+                    pipe = CreatePipe(pipeName ?? IpcProtocol.PipeName);
                 }
                 catch (Exception exception) when (
                     exception is IOException or UnauthorizedAccessException)
@@ -66,6 +70,11 @@ public sealed class NamedPipeBrokerServer(
         {
             // Normal server shutdown.
         }
+        finally
+        {
+            // Commands left by departed clients still hold runtime work; let them unwind.
+            await Task.WhenAll(runningRequests.Keys).ConfigureAwait(false);
+        }
     }
 
     public async ValueTask PublishAsync(
@@ -97,11 +106,18 @@ public sealed class NamedPipeBrokerServer(
         }
     }
 
+    /// <summary>Whether a desktop is connected to receive published events.</summary>
+    public bool HasClients => !clients.IsEmpty;
+
     private async Task HandleClientAsync(
         long clientId,
         ClientConnection connection,
         CancellationToken cancellationToken)
     {
+        // Requests are dispatched concurrently and answered by request ID, so a Disconnect
+        // sent while a long Connect runs reaches the broker and can cancel it.
+        // Not disposed here: requests still running after the client leaves release it later.
+        var requestSlots = new SemaphoreSlim(MaxConcurrentRequests, MaxConcurrentRequests);
         try
         {
             while (!cancellationToken.IsCancellationRequested && connection.IsConnected)
@@ -132,14 +148,17 @@ public sealed class NamedPipeBrokerServer(
                     return;
                 }
 
-                var validationError = Validate(request);
-                var response = validationError ??
-                    await DispatchSafelyAsync(request, cancellationToken).ConfigureAwait(false);
+                if (Validate(request) is { } validationError)
+                {
+                    await connection.WriteAsync(
+                            BrokerServerMessage.FromResponse(validationError),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    continue;
+                }
 
-                await connection.WriteAsync(
-                        BrokerServerMessage.FromResponse(response),
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                await requestSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+                Track(RespondAsync(clientId, connection, request, requestSlots, cancellationToken));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -156,7 +175,53 @@ public sealed class NamedPipeBrokerServer(
         }
         finally
         {
+            // Free the single pipe instance at once so a reconnecting desktop can attach
+            // while a long command (such as a Connect) is still running. That command keeps
+            // running; its response is dropped because its client has gone.
             await RemoveClientAsync(clientId, connection).ConfigureAwait(false);
+        }
+    }
+
+    private void Track(Task request)
+    {
+        runningRequests.TryAdd(request, 0);
+        _ = request.ContinueWith(
+            completed => runningRequests.TryRemove(completed, out _),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task RespondAsync(
+        long clientId,
+        ClientConnection connection,
+        BrokerRequest request,
+        SemaphoreSlim requestSlots,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await DispatchSafelyAsync(request, cancellationToken).ConfigureAwait(false);
+            await connection.WriteAsync(BrokerServerMessage.FromResponse(response), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal server shutdown.
+        }
+        catch (Exception exception) when (
+            exception is IOException or ObjectDisposedException or InvalidOperationException or InvalidDataException)
+        {
+            logger.LogDebug(exception, "IPC client {ClientId} did not receive a response.", clientId);
+        }
+        catch (Exception exception)
+        {
+            // Nothing awaits this task; an escaping exception would go unobserved.
+            logger.LogError(exception, "Responding to IPC client {ClientId} failed.", clientId);
+        }
+        finally
+        {
+            requestSlots.Release();
         }
     }
 
@@ -195,7 +260,7 @@ public sealed class NamedPipeBrokerServer(
         }
     }
 
-    private static BrokerResponse? Validate(BrokerRequest request)
+    internal static BrokerResponse? Validate(BrokerRequest request)
     {
         if (request.RequestId == Guid.Empty)
         {
@@ -227,6 +292,16 @@ public sealed class NamedPipeBrokerServer(
                 request.RequestId,
                 BrokerErrorCode.InvalidRequest,
                 "Connect-after-save is valid only for a settings request.");
+        }
+
+        if (request.Command == BrokerCommand.ManageRoutingData
+                ? request.RoutingDataAction is not { } action || !Enum.IsDefined(action)
+                : request.RoutingDataAction is not null)
+        {
+            return BrokerResponse.Failed(
+                request.RequestId,
+                BrokerErrorCode.InvalidRequest,
+                "A valid routing data action is required for, and only for, a routing data request.");
         }
 
         return null;
@@ -291,7 +366,7 @@ public sealed class NamedPipeBrokerServer(
         }
     }
 
-    private static NamedPipeServerStream CreatePipe()
+    private static NamedPipeServerStream CreatePipe(string name)
     {
         var security = new PipeSecurity();
         security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
@@ -301,7 +376,7 @@ public sealed class NamedPipeBrokerServer(
         security.AddAccessRule(CreateRule(WellKnownSidType.InteractiveSid, PipeAccessRights.ReadWrite, AccessControlType.Allow));
 
         return NamedPipeServerStreamAcl.Create(
-            IpcProtocol.PipeName,
+            name,
             PipeDirection.InOut,
             MaxConcurrentClients,
             PipeTransmissionMode.Byte,

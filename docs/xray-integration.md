@@ -45,7 +45,7 @@ keeps the previous behavior.
   strategy drops unrouted address families: IPv4-only routing returns no AAAA
   records, so applications are not steered onto an uncaptured IPv6 path.
 
-### FakeDNS (opt-in)
+### FakeDNS (on for new profiles)
 
 With FakeDNS on, the DNS module answers lookups that are not pinned to the
 domestic resolver with placeholders from `198.18.0.0/15`, and every inbound
@@ -59,11 +59,17 @@ direct outbound never receive placeholders.
   fall through to DNS-over-HTTPS.
 - The broker flushes the Windows DNS cache on connect, disconnect, kill-switch
   guard, profile activation, and broker startup. A placeholder is meaningful
-  only to the Xray process that issued it; transport recovery restarts Paqet
-  alone for that reason.
+  only to the Xray process that issued it, so transport recovery restarts Xray
+  only when its own configuration changed (for example the network's resolvers
+  or the LAN share address), and the Windows DNS cache is flushed when it does.
 - Validation rejects FakeDNS with the System resolver, without IPv4 routing,
   and with application exclusions in all-applications mode, where excluded
   applications share the Windows cache but bypass capture.
+- With the `IPIfNonMatch` domain strategy, a domain that matches no domain rule
+  is still resolved over DNS-over-HTTPS once so the IP rules (`geoip:ir`,
+  custom ranges) can be checked; FakeDNS removes the application's own lookup,
+  not that one. Xray caches the answer.
+- Profiles saved before FakeDNS became the default keep their stored value.
 
 ### DNS leak check
 
@@ -85,28 +91,76 @@ Rules are evaluated in this order; the first match wins:
    queries, then port 53 from the user inbounds to the `dns` outbound.
 2. **Custom direct destinations**: one domain, `*.domain`, IP address, or CIDR
    range per line. A bare domain also matches its subdomains.
-3. **Block ads** (`geosite:category-ads-all`), on by default.
-4. **Block QUIC** (UDP/443), off by default. Measured through a Paqet route on
-   2026-10-19, HTTP/3 had slightly lower request latency than HTTP/2 (warm
-   requests 113–117 ms against 154–155 ms) but under half the download
-   throughput (10–11 Mbit/s against 17–23 Mbit/s), so enabling it favors bulk
-   transfers.
-5. **Direct BitTorrent**, on by default. The UI warns that it exposes the
+3. **Block ads** (`geosite:category-ads-all`), on by default, then **Block
+   malware, phishing and cryptominers** when updated routing data is installed.
+4. **Direct BitTorrent**, on by default. The UI warns that it exposes the
    machine's normal public IP to peers.
-6. **LAN bypass** (`geosite:private`, `geoip:private`).
-7. **Iran — Direct** regional preset (`geosite:category-ir`, `geoip:ir`), the
+5. **LAN bypass** (`geosite:private`, `geoip:private`).
+6. **Iran — Direct** regional preset (`geosite:category-ir`, `geoip:ir`), the
    default; `None` disables it.
+7. **Block QUIC** (UDP/443), on for new profiles. It follows every direct rule,
+   so only QUIC headed into the tunnel is blocked and direct destinations keep
+   HTTP/3. Measured through a Paqet route on 2026-10-19, HTTP/3 had slightly
+   lower request latency than HTTP/2 (warm requests 113–117 ms against
+   154–155 ms) but under half the download throughput (10–11 Mbit/s against
+   17–23 Mbit/s); browsers fall back to TCP immediately when QUIC is blocked.
 8. Everything else goes to Paqet.
 
 `IPIfNonMatch` is the default domain strategy; `AsIs` and `IPOnDemand` are also
 available. TCP/UDP and IPv4/IPv6 selection is enforced by ProxiFyre capture, not
 by Xray rules.
 
+## Routing data
+
+Xray matches `geosite:` and `geoip:` rules against two data files. The installer
+ships the files from the pinned Xray release. The broker can replace them with
+the daily releases of the
+[Iran-v2ray-rules](https://github.com/Chocolate4U/Iran-v2ray-rules) project, a
+superset of v2fly's domain list with a larger `category-ir` (Iranian sites on any
+top-level domain), Persian advertising and tracking domains in
+`category-ads-all`, and `malware`, `phishing`, and `cryptominers` categories.
+
+- **Settings → Routing data** shows the active source and version, checks once a
+  day when **Update automatically** is on (the default), and offers **Update
+  now** and **Use bundled data**.
+- An update reads the latest release tag from the GitHub API, downloads both
+  files and their `.sha256sum` files, rejects files over 32 MB, and verifies the
+  digests. A release that fails is not downloaded again for an hour, manual
+  updates run at most once every five minutes, and one attempt is capped at 15
+  minutes. The pinned `xray.exe` must then accept a test configuration that uses
+  every category PaqetFire can emit, with `XRAY_LOCATION_ASSET` pointing at the
+  new files. Only then does the release become active.
+- While the route is connected, the download goes only through Paqet, so it
+  works where GitHub is filtered and never leaves the route. While the kill
+  switch is holding traffic, nothing is downloaded. When disconnected, it goes
+  direct.
+- Each release is kept in its own directory under
+  `%ProgramData%\PaqetFire\routing-data`, restricted to SYSTEM and
+  Administrators; the state file is the commit point, and the previous release
+  stays until the next update. Before every Xray start the broker re-verifies the
+  active files and holds them open against writes until Xray is ready. Any
+  mismatch falls back to the bundled files and is reported; if updated data
+  cannot be verified or loaded at launch, the broker rewrites the configuration
+  for the bundled files and retries once. Transient file errors use the bundled
+  files for that launch only.
+- New data takes effect at the next Xray start. A running Xray is never
+  restarted for it.
+- The files are downloaded on the user's machine and are not redistributed in
+  the installer; see the project for its sources and licenses.
+
+**Block malware, phishing and cryptominers** (Routing page, on for new profiles)
+blocks `geosite:malware`, `geosite:phishing`, `geosite:cryptominers`,
+`geoip:malware`, and `geoip:phishing`. Those categories exist only in updated
+routing data, so the rule is written only when the data Xray will load provides
+them; with bundled data the page shows a hint instead.
+
 ## Lifecycle and integrity
 
-The broker validates the generated JSON with `xray run -test` before launch.
-Connect order is Paqet, Xray, then ProxiFyre. Disconnect and rollback use the
-reverse order. Xray's executable and GeoIP/GeoSite databases are pinned in the
+The broker validates the generated JSON with `xray run -test` before launch,
+and skips that extra process when the configuration is byte-for-byte the one
+that last passed. Paqet and Xray start at the same time; Xray only dials Paqet
+when traffic arrives. ProxiFyre starts once both are ready. Disconnect and
+rollback stop ProxiFyre, then Xray and Paqet. Xray's executable and GeoIP/GeoSite databases are pinned in the
 payload manifest and verified before a connection may start.
 
 The generated `config.json` is broker-owned and written atomically under the

@@ -28,6 +28,9 @@ $checks = [ordered]@{
     RelaunchRequiresUpdaterOptIn = (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:InstallExecuteSequence/wix:Custom[@Action='RelaunchPaqetFireDesktop' and @After='InstallFinalize' and contains(@Condition, 'PAQETFIRE_RELAUNCH') and contains(@Condition, 'REMOVE~=')]").Count -eq 1
     UtilExtension = (Select-Xml -Xml $project -XPath "//PackageReference[@Include='WixToolset.Util.wixext']").Count -eq 1
     BrokerRestartsAfterFailure = (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:ServiceInstall[@Name='PaqetFire Broker']/util:ServiceConfig[@FirstFailureActionType='restart' and @SecondFailureActionType='restart' and @ThirdFailureActionType='restart']").Count -eq 1
+    MachineDataFolderIsProtected = (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:StandardDirectory[@Id='CommonAppDataFolder']/wix:Directory[@Id='PaqetFireDataFolder' and @Name='PaqetFire']").Count -eq 1 -and
+        (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:Component[@Directory='PaqetFireDataFolder']/wix:CreateFolder/wix:PermissionEx[starts-with(@Sddl, 'O:SY') and contains(@Sddl, 'D:P') and contains(@Sddl, '(A;OICI;FA;;;SY)') and contains(@Sddl, '(A;OICI;FA;;;BA)') and contains(@Sddl, '(A;OICI;0x1200a9;;;BU)')]").Count -eq 1 -and
+        (Select-Xml -Xml $package -Namespace $wixNamespace -XPath "//wix:Feature/wix:ComponentRef[@Id='MachineDataFolder']").Count -eq 1
 }
 
 $failedChecks = @($checks.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object Key)

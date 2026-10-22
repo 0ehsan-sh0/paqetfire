@@ -1,7 +1,7 @@
 # ProxiFyre integration contract
 
 This note records the production integration contract for PaqetFire. It was
-rechecked against ProxiFyre 2.6.1 documentation and source on 2026-09-24.
+rechecked against ProxiFyre 2.6.4 documentation and source on 2026-10-22.
 
 ## Runtime model
 
@@ -89,17 +89,26 @@ official MSI file set includes `ProxiFyre.exe`, its `.config`,
 and `NLog.config`. The authoritative list is in the
 [upstream MSI contents](https://github.com/wiresock/proxifyre/blob/main/docs/installer.md#msi-contents-and-behavior).
 
-The bundled 2.6.1 payload comes from the official x64 ZIP and is verified against
+The bundled 2.6.4 payload comes from the official x64 ZIP and is verified against
 the published archive checksum and the per-file manifest. The ZIP does not
-include prerequisite installers. Upstream's first-party 2.6.1 binaries are
+include prerequisite installers. Upstream's first-party 2.6.4 binaries are
 unsigned; archive and file digests establish the pinned artifact identity.
+
+Since 2.6.3 the engine refuses to run from a directory that standard users can
+modify, or whose files are owned by an individual account; 2.6.4 accepts the
+standard inherited Program Files entries (`CREATOR OWNER`). The MSI layout under
+`%ProgramFiles%\PaqetFire\broker\payload` satisfies this. A development payload
+staged under a user profile does not, so live ProxiFyre tests must run from an
+installed or SYSTEM-owned copy. The bundled `NLog.config` also rotates the
+engine log at 50 MiB and keeps three archives.
 
 For x64, the official ProxiFyre deployment contract currently requires:
 
 - Windows Packet Filter `3.6.2.1` x64 MSI (819,200 bytes, SHA-256
   `9c388c0b7f189f7fa98720bae2caecf7d64f30910838b80b438ecf8956b8502c`);
 - Windows Packet Filter API major `3`, minor `0x0601` or later, below major `4`;
-- Microsoft Visual C++ 2015-2022 x64 runtime `14.44.35211.0` or later; and
+- Microsoft Visual C++ v14 x64 runtime `14.44.35211.0` or later (the on-demand
+  installer fetches `14.51.36247.0`); and
 - .NET Framework 4.7.2 or later.
 
 The driver identity, compatibility checks, upstream filename, size, and pinned

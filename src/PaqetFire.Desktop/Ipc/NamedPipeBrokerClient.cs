@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using PaqetFire.Core.Ipc;
 using PaqetFire.Core.Configuration;
 using PaqetFire.Core.Profiles;
+using PaqetFire.Core.RoutingData;
 
 namespace PaqetFire.Desktop.Ipc;
 
@@ -32,6 +33,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
     private bool disposed;
 
     public event Action<BrokerEvent>? EventReceived;
+
+    public event Action? ConnectionLost;
 
     public async Task OpenAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
@@ -149,6 +152,17 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
             .ConfigureAwait(false);
     }
 
+    public async ValueTask<BrokerSnapshot> ManageRoutingDataAsync(
+        RoutingDataAction action,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        await SendAsync(
+                BrokerCommand.ManageRoutingData,
+                timeout,
+                cancellationToken,
+                routingDataAction: action)
+            .ConfigureAwait(false);
+
     public async ValueTask<string> ExportProfilesAsync(
         TimeSpan timeout,
         CancellationToken cancellationToken)
@@ -194,7 +208,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
         CancellationToken cancellationToken,
         PaqetFireSettings? settings = null,
         bool connectAfterSave = false,
-        ProfileAction? profileAction = null)
+        ProfileAction? profileAction = null,
+        RoutingDataAction? routingDataAction = null)
     {
         var response = await SendResponseAsync(
                 command,
@@ -202,7 +217,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
                 cancellationToken,
                 settings,
                 connectAfterSave,
-                profileAction)
+                profileAction,
+                routingDataAction)
             .ConfigureAwait(false);
         return response.Snapshot ??
             throw new InvalidDataException("The broker snapshot response was empty.");
@@ -214,7 +230,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
         CancellationToken cancellationToken,
         PaqetFireSettings? settings = null,
         bool connectAfterSave = false,
-        ProfileAction? profileAction = null)
+        ProfileAction? profileAction = null,
+        RoutingDataAction? routingDataAction = null)
     {
         ValidateTimeout(timeout);
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -231,7 +248,8 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
             command,
             settings,
             connectAfterSave,
-            profileAction);
+            profileAction,
+            routingDataAction);
         var completion = new TaskCompletionSource<BrokerResponse>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         if (!pendingRequests.TryAdd(request.RequestId, completion))
@@ -244,17 +262,35 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(timeout);
             BrokerResponse response;
+            var write = new WriteProgress();
             try
             {
-                await WriteRequestAsync(currentPipe, request, deadline.Token).ConfigureAwait(false);
-                response = await completion.Task.WaitAsync(deadline.Token)
-                .ConfigureAwait(false);
+                await WriteRequestAsync(currentPipe, request, write, deadline.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
-                // Cancellation may interrupt a frame after its prefix was sent.
-                // Never send another request on that potentially truncated stream.
-                await ResetIfCurrentAsync(currentPipe).ConfigureAwait(false);
+                // Cancellation may interrupt a frame after its prefix was sent; never reuse that
+                // stream. A deadline that expired while still queued for the write lock wrote
+                // nothing, so the pipe and the other pending requests are fine (a stuck earlier
+                // write resets the pipe when its own deadline expires).
+                if (write.Started && await ResetIfCurrentAsync(currentPipe).ConfigureAwait(false))
+                {
+                    RaiseConnectionLost();
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new TimeoutException("The broker request exceeded its deadline.");
+            }
+
+            try
+            {
+                response = await completion.Task.WaitAsync(deadline.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The whole frame was written, so the stream is intact. Responses are
+                // correlated by request ID; a late reply to this request is dropped.
                 cancellationToken.ThrowIfCancellationRequested();
                 throw new TimeoutException("The broker request exceeded its deadline.");
             }
@@ -275,15 +311,18 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
         }
     }
 
-    private async Task ResetIfCurrentAsync(NamedPipeClientStream expectedPipe)
+    private async Task<bool> ResetIfCurrentAsync(NamedPipeClientStream expectedPipe)
     {
         await lifecycleLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (ReferenceEquals(pipe, expectedPipe))
+            if (!ReferenceEquals(pipe, expectedPipe))
             {
-                await ResetConnectionAsync().ConfigureAwait(false);
+                return false;
             }
+
+            await ResetConnectionAsync().ConfigureAwait(false);
+            return true;
         }
         finally
         {
@@ -362,12 +401,24 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
         finally
         {
             FailPendingRequests(failure ?? new IOException("The broker connection ended."));
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                // The broker went away (service restart, crash, upgrade); tell the app so
+                // it can reconnect instead of waiting for the next user action.
+                RaiseConnectionLost();
+            }
         }
+    }
+
+    private sealed class WriteProgress
+    {
+        public bool Started { get; set; }
     }
 
     private async ValueTask WriteRequestAsync(
         NamedPipeClientStream connectedPipe,
         BrokerRequest request,
+        WriteProgress progress,
         CancellationToken cancellationToken)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(request, SerializerOptions);
@@ -382,6 +433,7 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
         await writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            progress.Started = true;
             await connectedPipe.WriteAsync(lengthBuffer, cancellationToken).ConfigureAwait(false);
             await connectedPipe.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
             await connectedPipe.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -509,6 +561,23 @@ public sealed class NamedPipeBrokerClient : IBrokerClient, IAsyncDisposable
             {
                 // Subscriber failures must not terminate the transport receive loop.
             }
+        }
+    }
+
+    private void RaiseConnectionLost()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            ConnectionLost?.Invoke();
+        }
+        catch
+        {
+            // Subscriber failures must not affect the transport.
         }
     }
 

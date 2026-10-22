@@ -148,6 +148,52 @@ public sealed class ProfileManagementTests
     }
 
     [Fact]
+    public async Task CreateAddsAnUnconfiguredProfileAndSelectsItOnlyWhileDisconnected()
+    {
+        await using var fixture = new Fixture();
+        var created = await fixture.Runtime.ManageProfilesAsync(new(ProfileActionKind.Create, Name: "  Office  "), CancellationToken.None);
+
+        var office = Assert.Single(created.ProfileCatalog!.Profiles, profile => profile.Name == "Office");
+        Assert.True(office.IsActive);
+        Assert.False(office.HasTransportKey);
+        AssertCredentials(fixture.Store.Catalog!);
+
+        await Assert.ThrowsAsync<ProfileCatalogException>(() => fixture.Runtime.ManageProfilesAsync(
+            new(ProfileActionKind.Create, Name: "office"), CancellationToken.None).AsTask());
+
+        fixture.Controller.State = ConnectionState.Connected;
+        var whileConnected = await fixture.Runtime.ManageProfilesAsync(new(ProfileActionKind.Create, Name: "Travel"), CancellationToken.None);
+        Assert.False(Assert.Single(whileConnected.ProfileCatalog!.Profiles, profile => profile.Name == "Travel").IsActive);
+        Assert.Equal(office.Id, fixture.Store.Catalog!.ActiveProfileId);
+        Assert.Equal(0, fixture.Controller.Disconnects);
+        Assert.Equal(0, fixture.Controller.ConnectionAttempts);
+    }
+
+    [Fact]
+    public async Task ImportMergeAddsProfilesBesideExistingOnesEvenWhileConnected()
+    {
+        await using var fixture = new Fixture();
+        fixture.Controller.State = ConnectionState.Connected;
+        var portable = ProfileCatalogJson.WritePortableExport(ProfileCatalog.Create(FirstId, new()
+        {
+            ProfileName = "local", ServerEndpoint = "server.example:8443", TransportKey = "imported-key",
+        }).Apply(new ProfileCatalogChange.Add(SecondId, new() { ProfileName = "Second", ServerEndpoint = "second.example:8443" }))
+            .Apply(new ProfileCatalogChange.Activate(SecondId)));
+
+        var snapshot = await fixture.Runtime.ManageProfilesAsync(
+            new(ProfileActionKind.ImportMerge, Payload: portable), CancellationToken.None);
+
+        Assert.Equal(["Local", "local (2)", "Second"], snapshot.ProfileCatalog!.Profiles.Select(profile => profile.Name));
+        Assert.Equal(FirstId, fixture.Store.Catalog!.ActiveProfileId);
+        Assert.Equal(FirstId, fixture.Store.Catalog.DefaultProfileId);
+        Assert.Equal("imported-key", fixture.Store.Catalog.Profiles[1].Settings.TransportKey);
+        Assert.NotEqual(FirstId, fixture.Store.Catalog.Profiles[1].Id);
+        AssertCredentials(fixture.Store.Catalog);
+        Assert.Equal(0, fixture.Controller.Disconnects);
+        Assert.Equal(0, fixture.Controller.ConnectionAttempts);
+    }
+
+    [Fact]
     public async Task IncompleteProfileCannotReplaceARunningRoute()
     {
         await using var fixture = new Fixture();
@@ -227,6 +273,7 @@ public sealed class ProfileManagementTests
             State, new(EngineKind.Paqet, EngineState.Stopped),
             new(EngineKind.Xray, EngineState.Stopped), new(EngineKind.ProxiFyre, EngineState.Stopped)));
         public ValueTask RestartTransportAsync(CancellationToken token) => ValueTask.CompletedTask;
+        public ValueTask RestartTransportAsync(bool includePolicy, CancellationToken token) => ValueTask.CompletedTask;
         public ValueTask DisconnectAsync(CancellationToken token)
         {
             if (DisconnectError is { } error) return ValueTask.FromException(error);

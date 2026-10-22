@@ -114,10 +114,15 @@
 
     <StandardDirectory Id="DesktopFolder" />
 
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="PaqetFireDataFolder" Name="PaqetFire" />
+    </StandardDirectory>
+
     <Feature Id="Complete" Title="PaqetFire" Level="1">
       <ComponentGroupRef Id="DesktopPayload" />
       <ComponentGroupRef Id="BrokerPayload" />
       <ComponentGroupRef Id="SharedRuntimePayload" />
+      <ComponentRef Id="MachineDataFolder" />
     </Feature>
   </Package>
 
@@ -153,6 +158,19 @@
         <Exclude Files="$(var.DesktopPublishDir)\**\*.pdb" />
       </Files>
     </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <!--
+      %ProgramData% lets standard users create folders, so the broker's state folder is
+      created here, owned by SYSTEM, with a protected DACL: SYSTEM and Administrators full
+      control, Users read-only, nothing inherited. The broker enforces the same at startup.
+    -->
+    <Component Id="MachineDataFolder" Directory="PaqetFireDataFolder" Guid="5B0E7C52-2F7A-4E8D-9D43-0A6B1F3C9E21">
+      <CreateFolder>
+        <PermissionEx Sddl="O:SYG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+      </CreateFolder>
+    </Component>
   </Fragment>
 
   <Fragment>

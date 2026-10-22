@@ -6,6 +6,7 @@ using PaqetFire.Core.Deployment;
 using PaqetFire.Core.Engines;
 using PaqetFire.Core.Routing;
 using Xunit;
+using System.Runtime.CompilerServices;
 
 namespace PaqetFire.Broker.Tests;
 
@@ -13,7 +14,10 @@ namespace PaqetFire.Broker.Tests;
 // test runs skip these checks; an explicitly configured but incomplete payload fails.
 public sealed class BundledEngineTheoryAttribute : TheoryAttribute
 {
-    public BundledEngineTheoryAttribute()
+    public BundledEngineTheoryAttribute(
+        [CallerFilePath] string? sourceFilePath = null,
+        [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PAQETFIRE_TEST_PAYLOAD_ROOT")))
         {

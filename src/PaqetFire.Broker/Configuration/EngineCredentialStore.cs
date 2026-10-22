@@ -10,7 +10,7 @@ namespace PaqetFire.Broker.Configuration;
 /// the startup kill-switch guard can keep ProxiFyre running with an earlier configuration
 /// while Xray and Paqet are restarted from a newly written one.
 /// </summary>
-public sealed class EngineCredentialStore(string path)
+public sealed class EngineCredentialStore(string path, ProtectedDirectory? directory = null)
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("PaqetFire.EngineSocksCredentials.v1");
 
@@ -30,6 +30,7 @@ public sealed class EngineCredentialStore(string path)
 
     private EngineSocksCredentials? TryLoad()
     {
+        ProtectedDirectory.EnsureFor(directory, _path);
         if (!File.Exists(_path))
         {
             return null;
@@ -66,7 +67,7 @@ public sealed class EngineCredentialStore(string path)
 
     private void Save(EngineSocksCredentials credentials)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        ProtectedDirectory.EnsureFor(directory, _path);
         var clear = Encoding.UTF8.GetBytes(credentials.Password);
         string protectedPassword;
         try

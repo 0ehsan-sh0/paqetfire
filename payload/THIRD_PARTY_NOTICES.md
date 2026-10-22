@@ -9,10 +9,10 @@ an aggregate. Each engine remains under its upstream license.
 - Exact source: https://github.com/hanselime/paqet/tree/v1.0.0-alpha.21
 - License: MIT
 
-## ProxiFyre 2.6.1
+## ProxiFyre 2.6.4
 
 - Project: https://github.com/wiresock/proxifyre
-- Exact source: https://github.com/wiresock/proxifyre/tree/v2.6.1
+- Exact source: https://github.com/wiresock/proxifyre/tree/v2.6.4
 - License: GNU Affero General Public License v3.0
 
 The corresponding source for the bundled ProxiFyre release is available at the
@@ -28,6 +28,14 @@ rights granted by the AGPL-3.0 license.
 PaqetFire uses Xray only as a local routing-policy engine. The bundled
 `geoip.dat` and `geosite.dat` files are the unmodified files from the official
 Xray Windows release.
+
+## Downloaded routing data
+
+When updated routing data is enabled, the broker downloads `geoip.dat` and
+`geosite.dat` from https://github.com/Chocolate4U/Iran-v2ray-rules on the
+user's machine. Those files are not part of the PaqetFire installer. The
+project is licensed under GPL-3.0, and its upstream sources keep their own
+licenses; see the project page.
 
 ## Packet drivers
 

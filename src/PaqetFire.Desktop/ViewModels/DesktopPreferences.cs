@@ -15,9 +15,9 @@ public sealed class DesktopPreferences
 
     public Guid? NetworkInterfaceGuid { get; set; }
 
-    public string LocalTcpFlags { get; set; } = "S";
+    public string LocalTcpFlags { get; set; } = "PA";
 
-    public string RemoteTcpFlags { get; set; } = "SA";
+    public string RemoteTcpFlags { get; set; } = "PA";
 
     public string KcpMode { get; set; } = "fast";
 
@@ -37,11 +37,13 @@ public sealed class DesktopPreferences
 
     public XrayDnsResolver DnsResolver { get; set; } = XrayDnsResolver.Cloudflare;
 
-    public bool FakeDns { get; set; }
+    public bool FakeDns { get; set; } = true;
 
     public bool BlockAds { get; set; } = true;
 
-    public bool BlockQuic { get; set; }
+    public bool BlockMalware { get; set; } = true;
+
+    public bool BlockQuic { get; set; } = true;
 
     public bool DirectBitTorrent { get; set; } = true;
 

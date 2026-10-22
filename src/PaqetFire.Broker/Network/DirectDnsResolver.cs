@@ -15,26 +15,85 @@ public static class DirectDnsResolver
 {
     private static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(2);
 
-    public static async ValueTask<IReadOnlyList<IPAddress>> ResolveIpv4Async(
+    /// <summary>The longest a resolution may delay a connect when every resolver is silent.</summary>
+    public static readonly TimeSpan ResolutionTimeout = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>Queries every resolver at once; the first non-empty answer wins.</summary>
+    public static ValueTask<IReadOnlyList<IPAddress>> ResolveIpv4Async(
         string host,
         IReadOnlyList<IPAddress> servers,
+        CancellationToken cancellationToken) =>
+        ResolveIpv4Async(
+            host,
+            servers.Where(server => server.AddressFamily == AddressFamily.InterNetwork)
+                .Distinct()
+                .Select(server => new IPEndPoint(server, 53))
+                .ToArray(),
+            ResolutionTimeout,
+            cancellationToken);
+
+    internal static async ValueTask<IReadOnlyList<IPAddress>> ResolveIpv4Async(
+        string host,
+        IReadOnlyList<IPEndPoint> servers,
+        TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        foreach (var server in servers.Where(server => server.AddressFamily == AddressFamily.InterNetwork))
+        if (servers.Count == 0)
         {
-            var answer = await QueryAsync(server, host, 1, cancellationToken).ConfigureAwait(false);
-            if (answer.Count > 0)
-            {
-                return answer;
-            }
+            return [];
         }
 
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        var queries = servers.Select(server => QueryUntilCancelledAsync(server, host, deadline.Token)).ToList();
+        try
+        {
+            while (queries.Count > 0)
+            {
+                var completed = await Task.WhenAny(queries).ConfigureAwait(false);
+                queries.Remove(completed);
+                var answer = await completed.ConfigureAwait(false);
+                if (answer.Count > 0)
+                {
+                    return answer;
+                }
+            }
+        }
+        finally
+        {
+            await deadline.CancelAsync().ConfigureAwait(false);
+            await Task.WhenAll(queries).ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
         return [];
+
+        static async Task<IReadOnlyList<IPAddress>> QueryUntilCancelledAsync(
+            IPEndPoint server,
+            string host,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await QueryAsync(server, host, 1, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return [];
+            }
+        }
     }
 
     /// <summary>Sends one query and returns its A records; an empty list means no usable answer.</summary>
-    public static async ValueTask<IReadOnlyList<IPAddress>> QueryAsync(
+    public static ValueTask<IReadOnlyList<IPAddress>> QueryAsync(
         IPAddress server,
+        string host,
+        ushort type,
+        CancellationToken cancellationToken) =>
+        QueryAsync(new IPEndPoint(server, 53), host, type, cancellationToken);
+
+    private static async ValueTask<IReadOnlyList<IPAddress>> QueryAsync(
+        IPEndPoint server,
         string host,
         ushort type,
         CancellationToken cancellationToken)
@@ -44,7 +103,7 @@ public static class DirectDnsResolver
         try
         {
             using var udp = new UdpClient(server.AddressFamily);
-            udp.Connect(server, 53);
+            udp.Connect(server);
             var id = (ushort)RandomNumberGenerator.GetInt32(ushort.MaxValue + 1);
             await udp.SendAsync(CreateQuery(id, host, type), deadline.Token).ConfigureAwait(false);
             while (true)
