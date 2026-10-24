@@ -13,6 +13,7 @@ internal sealed record PortableConnectionProfile
     public PortableXraySettings Xray { get; init; } = new();
     public PortableProxiFyreSettings ProxiFyre { get; init; } = new();
     public PortableSharingSettings Sharing { get; init; } = new();
+    public UpstreamOpenVpnOptions UpstreamOpenVpn { get; init; } = new();
 
     public static PortableConnectionProfile FromProfile(ConnectionProfile profile) => new()
     {
@@ -51,6 +52,7 @@ internal sealed record PortableConnectionProfile
             RouteIpv6 = profile.Settings.RouteIpv6,
             KillSwitchEnabled = profile.Settings.KillSwitchEnabled,
         },
+        UpstreamOpenVpn = profile.Settings.UpstreamOpenVpn with { Password = null },
         Sharing = new()
         {
             ShareWithLan = profile.Settings.ShareWithLan,
@@ -97,6 +99,7 @@ internal sealed record PortableConnectionProfile
             LanSocksPort = Sharing.LanSocksPort,
             ShareViaHotspot = Sharing.ShareViaHotspot,
             HotspotSocksPort = Sharing.HotspotSocksPort,
+            UpstreamOpenVpn = UpstreamOpenVpn ?? new(),
         });
     }
 }
