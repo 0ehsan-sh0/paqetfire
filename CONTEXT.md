@@ -69,3 +69,16 @@ Routing policy directive that routes local subnet and private IP traffic directl
 _Avoid_: LAN exclusion, local whitelist
 
 
+
+
+**Upstream OpenVPN**:
+An optional supervised OpenVPN connection routed through the local Xray/Paqet proxy to an external VPN provider (e.g., ProtonVPN), providing alternative exit geolocation and clean exit IPs.
+_Avoid_: Second VPN, nested proxy, openvpn mode
+
+**Imported VPN configuration**:
+A validated `.ovpn` configuration file and accompanying credentials imported into a profile, managed by the broker to supervise the local OpenVPN client process.
+_Avoid_: ovpn profile, vpn file, proton config
+
+**Wintun adapter**:
+The dynamic, zero-install virtual network interface (`PaqetFire-VPN`) created on demand by the bundled OpenVPN engine using `wintun.dll`.
+_Avoid_: TAP device, virtual card, VPN adapter
