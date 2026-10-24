@@ -7,6 +7,7 @@ namespace PaqetFire.Broker.Engines;
 internal static class BundledEngineOptions
 {
     public const string XrayVersion = "26.3.27";
+    public const string OpenVpnVersion = "2.7.8";
 
     public static PaqetProcessOptions CreatePaqet(RuntimePaths paths) => new()
     {
@@ -39,5 +40,17 @@ internal static class BundledEngineOptions
         Version = "2.6.4",
         ExpectedExecutableSha256 = "beb7ff5b5283f872c610a6c70abfa9a5949f09c50fc766298776e5798a48ccfc",
         ReadinessTimeout = TimeSpan.FromSeconds(8),
+    };
+
+    public static OpenVpnProcessOptions CreateOpenVpn(
+        string executablePath,
+        string configPath,
+        string? authPath = null) => new()
+    {
+        ExecutablePath = executablePath,
+        ConfigurationPath = configPath,
+        AuthFilePath = authPath,
+        Version = OpenVpnVersion,
+        ReadinessTimeout = TimeSpan.FromSeconds(30),
     };
 }
