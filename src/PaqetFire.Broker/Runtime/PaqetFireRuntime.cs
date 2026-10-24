@@ -97,7 +97,7 @@ public sealed class PaqetFireRuntime(
 
         FlushDnsCache();
         var settings = await TryLoadSettingsAsync(cancellationToken).ConfigureAwait(false);
-        profileCatalog = await profileCatalogStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        profileCatalog = await TryLoadProfileCatalogAsync(cancellationToken).ConfigureAwait(false);
         if (profileCatalog is null && settings is not null)
         {
             profileCatalog = ProfileCatalog.FromLegacySettings(Guid.NewGuid(), settings);
@@ -1888,9 +1888,24 @@ public sealed class PaqetFireRuntime(
             return await settingsStore.LoadAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (
-            exception is IOException or InvalidDataException or CryptographicException or FormatException or UnauthorizedAccessException)
+            exception is IOException or InvalidDataException or CryptographicException or FormatException or UnauthorizedAccessException or JsonException)
         {
             logger.LogError(exception, "The saved PaqetFire settings could not be loaded.");
+            return null;
+        }
+    }
+
+    private async ValueTask<ProfileCatalog?> TryLoadProfileCatalogAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await profileCatalogStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is IOException or InvalidDataException or CryptographicException or FormatException or UnauthorizedAccessException or JsonException)
+        {
+            logger.LogError(exception, "The saved profile catalog could not be loaded.");
             return null;
         }
     }
@@ -1925,7 +1940,7 @@ public sealed class PaqetFireRuntime(
             return profileCatalog;
         }
 
-        profileCatalog = await profileCatalogStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        profileCatalog = await TryLoadProfileCatalogAsync(cancellationToken).ConfigureAwait(false);
         if (profileCatalog is not null)
         {
             return profileCatalog;

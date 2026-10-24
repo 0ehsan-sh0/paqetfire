@@ -14,7 +14,7 @@ public sealed class MachineSettingsStore(string settingsPath, ProtectedDirectory
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = false,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };

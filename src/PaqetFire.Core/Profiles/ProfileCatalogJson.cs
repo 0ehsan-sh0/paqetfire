@@ -52,6 +52,22 @@ public static class ProfileCatalogJson
 
     };
 
+    private static readonly JsonSerializerOptions ProtectedJsonOptions = new()
+
+    {
+
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+
+        PropertyNameCaseInsensitive = false,
+
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+
+        WriteIndented = true,
+
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+
+    };
+
     public static string WriteProtected(ProfileCatalog catalog, IProfileSecretProtector protector)
 
     {
@@ -90,7 +106,7 @@ public static class ProfileCatalogJson
 
                 profiles),
 
-            JsonOptions);
+            ProtectedJsonOptions);
 
     }
 
@@ -100,7 +116,7 @@ public static class ProfileCatalogJson
 
         ArgumentNullException.ThrowIfNull(protector);
 
-        var document = Deserialize<ProtectedCatalogDocument>(json);
+        var document = Deserialize<ProtectedCatalogDocument>(json, ProtectedJsonOptions);
 
         ValidateHeader(document.SchemaVersion, document.Kind, CatalogKind);
 
@@ -303,7 +319,7 @@ public static class ProfileCatalogJson
 
     }
 
-    private static T Deserialize<T>(string json)
+    private static T Deserialize<T>(string json, JsonSerializerOptions? options = null)
 
     {
 
@@ -321,7 +337,7 @@ public static class ProfileCatalogJson
 
         {
 
-            return JsonSerializer.Deserialize<T>(json, JsonOptions)
+            return JsonSerializer.Deserialize<T>(json, options ?? JsonOptions)
 
                 ?? throw new InvalidDataException("The profile document is empty.");
 

@@ -53,4 +53,24 @@ public sealed class ProfileCatalogSecretProtectionTests
         Assert.Equal("user123", restoredProfile.Settings.UpstreamOpenVpn.Username);
         Assert.True(restoredProfile.Settings.UpstreamOpenVpn.Enabled);
     }
+
+    [Fact]
+    public void ReadProtected_IgnoresUnknownProperties_SuchAsLegacyExitProxy()
+    {
+        var id = Guid.NewGuid();
+        var profile = new ConnectionProfile(id, new PaqetFireSettings
+        {
+            ProfileName = "Legacy Profile",
+            ServerEndpoint = "1.2.3.4:443",
+        });
+
+        var catalog = ProfileCatalog.Create(id, profile.Settings);
+        var protector = new FakeSecretProtector();
+        var json = ProfileCatalogJson.WriteProtected(catalog, protector);
+        var injectedJson = json.Replace("\"settings\": {", "\"settings\": { \"exitProxy\": { \"enabled\": true },", StringComparison.Ordinal);
+
+        var restored = ProfileCatalogJson.ReadProtected(injectedJson, protector);
+        var restoredProfile = restored.Profiles.Single();
+        Assert.Equal("Legacy Profile", restoredProfile.Settings.ProfileName);
+    }
 }
