@@ -54,17 +54,24 @@ public sealed class ConnectionVerifier(IRouteProbe routeProbe, TimeProvider? tim
 
         var startedAt = clock.GetUtcNow();
         var checks = new List<ConnectionVerificationCheck>();
+        var openVpnHealthy = !settings.UpstreamOpenVpn.Enabled ||
+            (connection.OpenVpn is not null && connection.OpenVpn.State == EngineState.Running);
         var enginesHealthy = connection.State == ConnectionState.Connected &&
             connection.Paqet.State == EngineState.Running &&
             connection.Xray.State == EngineState.Running &&
-            connection.ProxiFyre.State == EngineState.Running;
+            connection.ProxiFyre.State == EngineState.Running &&
+            openVpnHealthy;
         checks.Add(new ConnectionVerificationCheck(
             VerificationCheckKind.EngineChain,
             enginesHealthy ? VerificationCheckStatus.Passed : VerificationCheckStatus.Failed,
             "Engine chain",
             enginesHealthy
-                ? "Paqet, Xray, and ProxiFyre report healthy running states."
-                : "The complete Paqet → Xray → ProxiFyre chain is not connected."));
+                ? (settings.UpstreamOpenVpn.Enabled
+                    ? "Paqet, Xray, OpenVPN, and ProxiFyre report healthy running states."
+                    : "Paqet, Xray, and ProxiFyre report healthy running states.")
+                : (settings.UpstreamOpenVpn.Enabled
+                    ? "The complete Paqet → Xray → OpenVPN → ProxiFyre chain is not connected."
+                    : "The complete Paqet → Xray → ProxiFyre chain is not connected.")));
 
         checks.Add(new ConnectionVerificationCheck(
             VerificationCheckKind.ApplicationCapture,
@@ -98,7 +105,9 @@ public sealed class ConnectionVerifier(IRouteProbe routeProbe, TimeProvider? tim
                 tcp.Succeeded ? VerificationCheckStatus.Passed : ToFailureStatus(tcp),
                 "Proxied public address",
                 tcp.Succeeded
-                    ? "The public IPv4 address returned through the explicit local Xray route; no direct-route comparison was performed."
+                    ? (settings.UpstreamOpenVpn.Enabled
+                        ? "The public IPv4 address returned through the Upstream OpenVPN tunnel via Paqet; no direct-route comparison was performed."
+                        : "The public IPv4 address returned through the explicit local Xray route; no direct-route comparison was performed.")
                     : tcp.Detail,
                 tcp.DurationMilliseconds,
                 tcp.ObservedValue));

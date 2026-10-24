@@ -43,7 +43,7 @@ public sealed class LiveStatsService(
             return new LiveConnectionStats(now, IsConnected: false);
         }
 
-        var connectedSince = new[] { status.Paqet.ChangedAt, status.Xray.ChangedAt, status.ProxiFyre.ChangedAt }
+        var connectedSince = new[] { status.Paqet.ChangedAt, status.Xray.ChangedAt, status.ProxiFyre.ChangedAt, status.OpenVpn?.ChangedAt }
             .Where(value => value is not null)
             .Max() ?? now;
         var current = GetOrStartSession(connectedSince);

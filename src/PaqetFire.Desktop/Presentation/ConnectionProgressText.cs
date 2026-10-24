@@ -59,6 +59,7 @@ public static class ConnectionProgressText
         ConnectionStage.VerifyingPayload => "Checking engine files",
         ConnectionStage.StartingTransport => "Starting Paqet transport",
         ConnectionStage.StartingPolicy => "Starting Xray policy",
+        ConnectionStage.StartingVpn => "Starting Upstream OpenVPN",
         ConnectionStage.StartingCapture => "Starting application capture",
         ConnectionStage.ProbingTunnel => "Testing tunnel",
         ConnectionStage.RecoveringTransport => string.Create(
@@ -80,6 +81,10 @@ public static class ConnectionProgressText
         }
 
         var current = Array.IndexOf(ConnectStages, progress.Stage);
+        if (current < 0 && progress.Stage == ConnectionStage.StartingVpn)
+        {
+            current = Array.IndexOf(ConnectStages, ConnectionStage.StartingPolicy);
+        }
         return ConnectStages
             .Select((stage, index) => new ConnectionProgressStep(
                 GetStageLabel(stage),

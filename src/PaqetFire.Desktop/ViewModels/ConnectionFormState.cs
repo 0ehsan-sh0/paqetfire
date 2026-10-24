@@ -179,16 +179,18 @@ public sealed record ConnectionFormState
             KcpMode = string.IsNullOrWhiteSpace(KcpMode) ? "fast" : KcpMode.Trim(),
             LocalTcpFlags = SplitEntries(LocalTcpFlags),
             RemoteTcpFlags = SplitEntries(RemoteTcpFlags),
-            UpstreamOpenVpn = new UpstreamOpenVpnOptions
-            {
-                Enabled = UpstreamOpenVpnEnabled,
-                OvpnConfigText = UpstreamOpenVpnConfigText,
-                Username = UpstreamOpenVpnUsername,
-                Password = upstreamOpenVpnPassword,
-                RemoteHost = remoteHost,
-                RemotePort = remotePort,
-                Protocol = proto,
-            },
+            UpstreamOpenVpn = UpstreamOpenVpnEnabled
+                ? new UpstreamOpenVpnOptions
+                {
+                    Enabled = true,
+                    OvpnConfigText = string.IsNullOrWhiteSpace(UpstreamOpenVpnConfigText) ? null : UpstreamOpenVpnConfigText,
+                    Username = string.IsNullOrWhiteSpace(UpstreamOpenVpnUsername) ? null : UpstreamOpenVpnUsername,
+                    Password = string.IsNullOrWhiteSpace(upstreamOpenVpnPassword) ? null : upstreamOpenVpnPassword,
+                    RemoteHost = remoteHost,
+                    RemotePort = remotePort,
+                    Protocol = proto,
+                }
+                : new UpstreamOpenVpnOptions(),
         };
     }
 
@@ -227,15 +229,17 @@ public sealed record ConnectionFormState
         preferences.RouteIpv6 = RouteIpv6;
 
         var (remoteHost, remotePort, proto) = UpstreamOpenVpnValidator.ParseServerInfo(UpstreamOpenVpnConfigText);
-        preferences.UpstreamOpenVpn = new UpstreamOpenVpnOptions
-        {
-            Enabled = UpstreamOpenVpnEnabled,
-            OvpnConfigText = UpstreamOpenVpnConfigText,
-            Username = UpstreamOpenVpnUsername,
-            RemoteHost = remoteHost,
-            RemotePort = remotePort,
-            Protocol = proto,
-        };
+        preferences.UpstreamOpenVpn = UpstreamOpenVpnEnabled
+            ? new UpstreamOpenVpnOptions
+            {
+                Enabled = true,
+                OvpnConfigText = string.IsNullOrWhiteSpace(UpstreamOpenVpnConfigText) ? null : UpstreamOpenVpnConfigText,
+                Username = string.IsNullOrWhiteSpace(UpstreamOpenVpnUsername) ? null : UpstreamOpenVpnUsername,
+                RemoteHost = remoteHost,
+                RemotePort = remotePort,
+                Protocol = proto,
+            }
+            : new UpstreamOpenVpnOptions();
     }
 
     public static IReadOnlyList<string> SplitEntries(string? value) => (value ?? string.Empty)
