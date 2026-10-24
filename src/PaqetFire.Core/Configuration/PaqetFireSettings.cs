@@ -71,6 +71,8 @@ public sealed record PaqetFireSettings
     public IReadOnlyList<string> LocalTcpFlags { get; init; } = ["PA"];
 
     public IReadOnlyList<string> RemoteTcpFlags { get; init; } = ["PA"];
+
+    public UpstreamOpenVpnOptions UpstreamOpenVpn { get; init; } = new();
 }
 
 public sealed record PaqetFireSettingsView(
@@ -112,6 +114,10 @@ public sealed record PaqetFireSettingsView(
 
     public bool BlockMalware { get; init; }
 
+    public UpstreamOpenVpnOptions UpstreamOpenVpn { get; init; } = new();
+
+    public bool HasUpstreamOpenVpnPassword { get; init; }
+
     public static PaqetFireSettingsView FromSettings(PaqetFireSettings settings) => new(
         settings.ProfileName,
         settings.ServerEndpoint,
@@ -146,6 +152,8 @@ public sealed record PaqetFireSettingsView(
         DnsResolver = settings.DnsResolver,
         FakeDns = settings.FakeDns,
         BlockMalware = settings.BlockMalware,
+        UpstreamOpenVpn = settings.UpstreamOpenVpn with { Password = null },
+        HasUpstreamOpenVpnPassword = !string.IsNullOrEmpty(settings.UpstreamOpenVpn.Password),
     };
 }
 

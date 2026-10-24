@@ -139,6 +139,7 @@ public static class PaqetFireSettingsValidator
         ValidateDirectRouteDestinations(settings.DirectRouteDestinations, errors);
         ValidateFlags(settings.LocalTcpFlags, "local", errors);
         ValidateFlags(settings.RemoteTcpFlags, "remote", errors);
+        errors.AddRange(UpstreamOpenVpnValidator.Validate(settings.UpstreamOpenVpn));
         return errors;
     }
 
