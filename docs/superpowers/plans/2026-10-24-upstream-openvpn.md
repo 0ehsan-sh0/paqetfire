@@ -53,7 +53,7 @@
   }
   ```
 
-- [ ] **Step 1: Write failing tests for UpstreamOpenVpnValidator and parsing**
+- [x] **Step 1: Write failing tests for UpstreamOpenVpnValidator and parsing**
 
 ```csharp
 namespace PaqetFire.Core.Tests;
@@ -91,21 +91,21 @@ public sealed class UpstreamOpenVpnValidatorTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~UpstreamOpenVpnValidatorTests"`
 Expected: FAIL (types do not exist).
 
-- [ ] **Step 3: Implement UpstreamOpenVpnOptions and UpstreamOpenVpnValidator**
+- [x] **Step 3: Implement UpstreamOpenVpnOptions and UpstreamOpenVpnValidator**
 
 Implement `UpstreamOpenVpnOptions.cs` and `UpstreamOpenVpnValidator.cs` with regex parsing for `remote <host> <port>` and `proto <protocol>`. Update `PaqetProfile.cs` to include `public UpstreamOpenVpnOptions? UpstreamOpenVpn { get; init; }` and wire validation in `PaqetProfileValidator.cs`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~UpstreamOpenVpnValidatorTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Configuration/UpstreamOpenVpnOptions.cs src/PaqetFire.Core/Configuration/UpstreamOpenVpnValidator.cs src/PaqetFire.Core/Configuration/PaqetProfile.cs src/PaqetFire.Core/Configuration/PaqetProfileValidator.cs tests/PaqetFire.Core.Tests/UpstreamOpenVpnValidatorTests.cs
@@ -136,7 +136,7 @@ git commit -m "feat(core): add UpstreamOpenVpnOptions and configuration validati
   }
   ```
 
-- [ ] **Step 1: Write failing tests for OpenVpnConfigurationWriter**
+- [x] **Step 1: Write failing tests for OpenVpnConfigurationWriter**
 
 ```csharp
 namespace PaqetFire.Core.Tests;
@@ -162,12 +162,12 @@ public sealed class OpenVpnConfigurationWriterTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~OpenVpnConfigurationWriterTests"`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement OpenVpnConfigurationWriter**
+- [x] **Step 3: Implement OpenVpnConfigurationWriter**
 
 Implement `OpenVpnConfigurationWriter.cs`:
 Strip any existing `auth-user-pass`, `socks-proxy`, `http-proxy`, or `dev` lines, then append the authoritative PaqetFire directives:
@@ -178,12 +178,12 @@ Strip any existing `auth-user-pass`, `socks-proxy`, `http-proxy`, or `dev` lines
 - `auth-user-pass "<authFilePath>"`
 - `route-metric 1`
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~OpenVpnConfigurationWriterTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Configuration/IOpenVpnConfigurationWriter.cs src/PaqetFire.Core/Configuration/OpenVpnConfigurationWriter.cs tests/PaqetFire.Core.Tests/OpenVpnConfigurationWriterTests.cs
@@ -204,7 +204,7 @@ git commit -m "feat(core): implement OpenVpnConfigurationWriter with socks-proxy
 - Modifies: `EngineKind` enum: adds `OpenVpn`.
 - Produces in `BundledEngineOptions`: `CreateOpenVpn(RuntimePaths paths)`.
 
-- [ ] **Step 1: Write test verifying EngineKind.OpenVpn is recognized**
+- [x] **Step 1: Write test verifying EngineKind.OpenVpn is recognized**
 
 ```csharp
 [Fact]
@@ -214,17 +214,17 @@ public void EngineKind_ContainsOpenVpn()
 }
 ```
 
-- [ ] **Step 2: Add EngineKind.OpenVpn and CreateOpenVpn**
+- [x] **Step 2: Add EngineKind.OpenVpn and CreateOpenVpn**
 
 Update `EngineKind.cs` to add `OpenVpn`.
 Update `BundledEngineOptions.cs` to declare OpenVPN executable path (`engines/openvpn/x64/openvpn.exe`), configuration paths, and timeout values.
 
-- [ ] **Step 3: Run broker tests to verify compilation and baseline**
+- [x] **Step 3: Run broker tests to verify compilation and baseline**
 
 Run: `dotnet test tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj`
 Expected: PASS.
 
-- [ ] **Step 4: Commit changes**
+- [x] **Step 4: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Engines/EngineKind.cs src/PaqetFire.Broker/Engines/BundledEngineOptions.cs payload/payload-manifest.json
@@ -244,7 +244,7 @@ git commit -m "feat(engines): declare EngineKind.OpenVpn and payload configurati
 - Consumes: Active physical LAN adapter IP from network detector.
 - Produces in Xray config: When physical IP is provided, `direct` outbound includes `"sendThrough": "<physical_ip>"`.
 
-- [ ] **Step 1: Write failing test in XrayJsonConfigurationWriterTests**
+- [x] **Step 1: Write failing test in XrayJsonConfigurationWriterTests**
 
 ```csharp
 [Fact]
@@ -258,22 +258,22 @@ public void DirectOutbound_WithPhysicalAdapterIp_EmitsSendThrough()
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~DirectOutbound_WithPhysicalAdapterIp"`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement physical IP binding in XrayJsonConfigurationWriter**
+- [x] **Step 3: Implement physical IP binding in XrayJsonConfigurationWriter**
 
 In `XrayJsonConfigurationWriter.cs`:
 When writing the `direct` (`freedom`) outbound, if `policy.PhysicalAdapterIp` is not null or empty, emit `"sendThrough": policy.PhysicalAdapterIp`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~DirectOutbound_WithPhysicalAdapterIp"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Routing/RoutingPolicy.cs src/PaqetFire.Core/Configuration/XrayJsonConfigurationWriter.cs tests/PaqetFire.Core.Tests/XrayJsonConfigurationWriterTests.cs
@@ -303,16 +303,16 @@ git commit -m "feat(xray): bind direct outbound to physical adapter IP for Iran 
   }
   ```
 
-- [ ] **Step 1: Write unit tests for OpenVpnProcessAdapter lifecycle**
+- [x] **Step 1: Write unit tests for OpenVpnProcessAdapter lifecycle**
 
 Write tests asserting adapter reports `EngineKind.OpenVpn`, transitions between `Stopped`, `Starting`, `Running`, and catches readiness signal (`Initialization Sequence Completed`).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj --filter "FullyQualifiedName~OpenVpnProcessAdapterTests"`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement OpenVpnProcessAdapter**
+- [x] **Step 3: Implement OpenVpnProcessAdapter**
 
 Implement `OpenVpnProcessAdapter` following existing pattern in `PaqetProcessAdapter.cs` and `XrayProcessAdapter.cs`:
 - Launch `openvpn.exe --config <path>` with suppressed console window.
@@ -320,12 +320,12 @@ Implement `OpenVpnProcessAdapter` following existing pattern in `PaqetProcessAda
 - Throw timeout if readiness is not achieved within `ReadinessTimeout`.
 - Clean shutdown on `StopAsync` by sending management signal or terminating child process.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj --filter "FullyQualifiedName~OpenVpnProcessAdapterTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Broker/Engines/OpenVpnProcessOptions.cs src/PaqetFire.Broker/Engines/OpenVpnProcessAdapter.cs tests/PaqetFire.Broker.Tests/OpenVpnProcessAdapterTests.cs
@@ -348,7 +348,7 @@ git commit -m "feat(broker): implement OpenVpnProcessAdapter engine supervisor"
 - Disconnect sequence:
   `ProxiFyre` -> `OpenVPN` -> `Xray` -> `Paqet`.
 
-- [ ] **Step 1: Write test for 4-engine connect and disconnect sequence**
+- [x] **Step 1: Write test for 4-engine connect and disconnect sequence**
 
 ```csharp
 [Fact]
@@ -369,17 +369,17 @@ public async Task ConnectAsync_WithOpenVpn_StartsInCorrectOrder()
 }
 ```
 
-- [ ] **Step 2: Implement 4-engine sequencing in ConnectionController**
+- [x] **Step 2: Implement 4-engine sequencing in ConnectionController**
 
 In `ConnectionController.cs`:
 Support nullable `_openVpn` adapter. If non-null, start after `_xray` and before `_proxiFyre`. In `RollBackConnectAsync` and `DisconnectAsync`, tear down in reverse order. Include `OpenVpnStatus` in `ConnectionStatus`.
 
-- [ ] **Step 3: Run test to verify it passes**
+- [x] **Step 3: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~ConnectionControllerTests"`
 Expected: PASS.
 
-- [ ] **Step 4: Commit changes**
+- [x] **Step 4: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Connections/ConnectionController.cs src/PaqetFire.Core/Connections/ConnectionStatus.cs tests/PaqetFire.Core.Tests/ConnectionControllerTests.cs
@@ -399,20 +399,20 @@ git commit -m "feat(connections): support 4-engine sequence with Upstream OpenVP
 **Interfaces:**
 - Produces: DPAPI encryption/decryption of `Username`, `Password`, and embedded private keys/auth in `UpstreamOpenVpnOptions`.
 
-- [ ] **Step 1: Write test for OpenVPN credentials encryption/decryption**
+- [x] **Step 1: Write test for OpenVPN credentials encryption/decryption**
 
 Write test verifying that serialized profile JSON stores cipher bytes (DPAPI) rather than raw username/password, and deserializes back to plain text in-memory.
 
-- [ ] **Step 2: Implement DPAPI protection in ProfileCatalogJson**
+- [x] **Step 2: Implement DPAPI protection in ProfileCatalogJson**
 
 Update `ProfileCatalogJson.cs` and `ConnectionProfile.cs` to pass `UpstreamOpenVpn` credentials through `IProfileSecretProtector`.
 
-- [ ] **Step 3: Run test to verify it passes**
+- [x] **Step 3: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~ProfileCatalogSecretProtectionTests"`
 Expected: PASS.
 
-- [ ] **Step 4: Commit changes**
+- [x] **Step 4: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Profiles/ConnectionProfile.cs src/PaqetFire.Core/Profiles/ProfileCatalogJson.cs tests/PaqetFire.Core.Tests/ProfileCatalogSecretProtectionTests.cs
@@ -436,7 +436,7 @@ git commit -m "feat(security): protect Upstream OpenVPN credentials using Window
   - TextBoxes for OpenVPN Username and Password (PasswordBox).
   - Detected server summary badge.
 
-- [ ] **Step 1: Update ProfileEditorViewModel with Upstream OpenVPN properties and file picker**
+- [x] **Step 1: Update ProfileEditorViewModel with Upstream OpenVPN properties and file picker**
 
 Add observable properties:
 - `bool IsUpstreamOpenVpnEnabled`
@@ -446,16 +446,16 @@ Add observable properties:
 - `string? OpenVpnServerSummary`
 - RelayCommands: `ImportOvpnFileCommand`, `OpenProtonGuideCommand`.
 
-- [ ] **Step 2: Update ProfilesPage.xaml with the Upstream OpenVPN Card**
+- [x] **Step 2: Update ProfilesPage.xaml with the Upstream OpenVPN Card**
 
 Build the WinUI 3 XAML markup containing the toggle, info banner, buttons, and credential inputs with proper theme bindings.
 
-- [ ] **Step 3: Build the Desktop application project**
+- [x] **Step 3: Build the Desktop application project**
 
 Run: `dotnet build src/PaqetFire.Desktop/PaqetFire.Desktop.csproj -c Release`
 Expected: Build succeeded with 0 errors.
 
-- [ ] **Step 4: Commit changes**
+- [x] **Step 4: Commit changes**
 
 ```bash
 git add src/PaqetFire.Desktop/Views/ProfilesPage.xaml src/PaqetFire.Desktop/ViewModels/ProfileEditorViewModel.cs
@@ -474,23 +474,23 @@ git commit -m "feat(ui): add Upstream OpenVPN card with Proton VPN onboarding gu
 **Interfaces:**
 - Verifies exit IP and country on Overview: when Upstream OpenVPN is active, tests verify public IP via the tunnel and display provider exit (e.g. ProtonVPN Canada), without any Psiphon naming or attribution.
 
-- [ ] **Step 1: Write test ensuring exit verification reflects active tunnel provider**
+- [x] **Step 1: Write test ensuring exit verification reflects active tunnel provider**
 
 Write test verifying that `ConnectionVerification` queries public IP and properly parses the exit without static hardcoding or external tool attribution.
 
-- [ ] **Step 2: Update ConnectionVerification and OverviewViewModel**
+- [x] **Step 2: Update ConnectionVerification and OverviewViewModel**
 
 Ensure that when Upstream OpenVPN is active, the Overview session card and Diagnostics display:
 - Exit IP & Country (e.g. `Canada - Proton VPN`)
 - Adapter Name: `PaqetFire-VPN (Wintun)`
 - Zero references to Psiphon.
 
-- [ ] **Step 3: Run tests to verify all tests pass**
+- [x] **Step 3: Run tests to verify all tests pass**
 
 Run: `dotnet test PaqetFire.slnx`
 Expected: ALL test suites PASS.
 
-- [ ] **Step 4: Commit changes**
+- [x] **Step 4: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Diagnostics/ConnectionVerification.cs src/PaqetFire.Desktop/ViewModels/OverviewViewModel.cs tests/PaqetFire.Core.Tests/ConnectionVerificationTests.cs
