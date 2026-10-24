@@ -191,7 +191,8 @@ public sealed record XrayRoutingPolicy(
     IReadOnlyList<string>? DirectRouteDestinations = null,
     XrayDnsPolicy? Dns = null,
     EngineSocksCredentials? EngineCredentials = null,
-    bool BlockMalware = false);
+    bool BlockMalware = false,
+    string? PhysicalAdapterIp = null);
 
 /// <param name="DomesticServers">IPv4 resolvers of the active network, used directly for local and direct-routed domains.</param>
 public sealed record XrayDnsPolicy(

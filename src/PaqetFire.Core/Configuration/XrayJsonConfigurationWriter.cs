@@ -191,7 +191,18 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             WritePaqetOutbound(writer, policy.EngineCredentials);
             if (dns is null)
             {
-                WriteSimpleOutbound(writer, "direct", "freedom");
+                if (string.IsNullOrWhiteSpace(policy.PhysicalAdapterIp))
+                {
+                    WriteSimpleOutbound(writer, "direct", "freedom");
+                }
+                else
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("tag", "direct");
+                    writer.WriteString("protocol", "freedom");
+                    writer.WriteString("sendThrough", policy.PhysicalAdapterIp);
+                    writer.WriteEndObject();
+                }
             }
             else
             {
@@ -200,6 +211,10 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
                 writer.WriteStartObject();
                 writer.WriteString("tag", "direct");
                 writer.WriteString("protocol", "freedom");
+                if (!string.IsNullOrWhiteSpace(policy.PhysicalAdapterIp))
+                {
+                    writer.WriteString("sendThrough", policy.PhysicalAdapterIp);
+                }
                 writer.WriteStartObject("settings");
                 writer.WriteString("domainStrategy", "UseIP");
                 writer.WriteEndObject();
