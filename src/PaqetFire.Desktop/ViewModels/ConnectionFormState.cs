@@ -40,6 +40,9 @@ public sealed record ConnectionFormState
     public bool RouteUdp { get; init; } = true;
     public bool RouteIpv4 { get; init; } = true;
     public bool RouteIpv6 { get; init; } = true;
+    public bool UpstreamOpenVpnEnabled { get; init; }
+    public string UpstreamOpenVpnConfigText { get; init; } = string.Empty;
+    public string UpstreamOpenVpnUsername { get; init; } = string.Empty;
 
     public static ConnectionFormState FromPreferences(DesktopPreferences source) => new ConnectionFormState
     {
@@ -73,6 +76,9 @@ public sealed record ConnectionFormState
         RouteUdp = source.RouteUdp,
         RouteIpv4 = source.RouteIpv4,
         RouteIpv6 = source.RouteIpv6,
+        UpstreamOpenVpnEnabled = source.UpstreamOpenVpn?.Enabled ?? false,
+        UpstreamOpenVpnConfigText = source.UpstreamOpenVpn?.OvpnConfigText ?? string.Empty,
+        UpstreamOpenVpnUsername = source.UpstreamOpenVpn?.Username ?? string.Empty,
     }.Normalize();
 
     public static ConnectionFormState FromSettings(PaqetFireSettingsView settings) => new ConnectionFormState
@@ -107,6 +113,9 @@ public sealed record ConnectionFormState
         RouteUdp = settings.RouteUdp,
         RouteIpv4 = settings.RouteIpv4,
         RouteIpv6 = settings.RouteIpv6,
+        UpstreamOpenVpnEnabled = settings.UpstreamOpenVpn?.Enabled ?? false,
+        UpstreamOpenVpnConfigText = settings.UpstreamOpenVpn?.OvpnConfigText ?? string.Empty,
+        UpstreamOpenVpnUsername = settings.UpstreamOpenVpn?.Username ?? string.Empty,
     }.Normalize();
 
     /// <summary>Canonical text so cosmetic differences (line endings, spacing, order of duplicates) are not changes.</summary>
@@ -122,46 +131,66 @@ public sealed record ConnectionFormState
         DirectRouteDestinations = string.Join('\n', SplitLines(DirectRouteDestinations)),
         LanSocksUsername = LanSocksUsername.Trim(),
         Advanced = Advanced ?? new(),
+        UpstreamOpenVpnUsername = UpstreamOpenVpnUsername.Trim(),
+        UpstreamOpenVpnConfigText = UpstreamOpenVpnConfigText.Trim(),
     };
 
     public bool IsEquivalentTo(ConnectionFormState? other) =>
         other is not null && Normalize().Equals(other.Normalize());
 
-    public PaqetFireSettings ToSettings(string transportKey, string sharingPassword) => new()
+    public PaqetFireSettings ToSettings(
+        string transportKey,
+        string sharingPassword,
+        string upstreamOpenVpnPassword = "")
     {
-        Advanced = Advanced,
-        ProfileName = ProfileName.Trim(),
-        ServerEndpoint = ServerEndpoint.Trim(),
-        NetworkInterfaceGuid = NetworkInterfaceGuid,
-        TransportKey = transportKey,
-        RoutingMode = RouteAllApplications ? RoutingMode.AllApplications : RoutingMode.SelectedApplications,
-        SelectedApplications = SplitLines(SelectedApplications),
-        UserExclusions = SplitLines(UserExclusions),
-        DirectRouteDestinations = SplitLines(DirectRouteDestinations),
-        BypassLan = BypassLan,
-        RouteTcp = RouteTcp,
-        RouteUdp = RouteUdp,
-        RouteIpv4 = RouteIpv4,
-        RouteIpv6 = RouteIpv6,
-        KillSwitchEnabled = KillSwitch,
-        ShareWithLan = ShareWithLan,
-        LanSocksPort = LanSocksPort,
-        LanSocksUsername = LanSocksUsername.Trim(),
-        LanSocksPassword = sharingPassword,
-        ShareViaHotspot = ShareViaHotspot,
-        HotspotSocksPort = HotspotSocksPort,
-        RegionalPreset = RegionalPreset,
-        DomainStrategy = DomainStrategy,
-        DnsResolver = DnsResolver,
-        FakeDns = FakeDns,
-        BlockAds = BlockAds,
-        BlockMalware = BlockMalware,
-        BlockQuic = BlockQuic,
-        DirectBitTorrent = DirectBitTorrent,
-        KcpMode = string.IsNullOrWhiteSpace(KcpMode) ? "fast" : KcpMode.Trim(),
-        LocalTcpFlags = SplitEntries(LocalTcpFlags),
-        RemoteTcpFlags = SplitEntries(RemoteTcpFlags),
-    };
+        var (remoteHost, remotePort, proto) = UpstreamOpenVpnValidator.ParseServerInfo(UpstreamOpenVpnConfigText);
+
+        return new()
+        {
+            Advanced = Advanced,
+            ProfileName = ProfileName.Trim(),
+            ServerEndpoint = ServerEndpoint.Trim(),
+            NetworkInterfaceGuid = NetworkInterfaceGuid,
+            TransportKey = transportKey,
+            RoutingMode = RouteAllApplications ? RoutingMode.AllApplications : RoutingMode.SelectedApplications,
+            SelectedApplications = SplitLines(SelectedApplications),
+            UserExclusions = SplitLines(UserExclusions),
+            DirectRouteDestinations = SplitLines(DirectRouteDestinations),
+            BypassLan = BypassLan,
+            RouteTcp = RouteTcp,
+            RouteUdp = RouteUdp,
+            RouteIpv4 = RouteIpv4,
+            RouteIpv6 = RouteIpv6,
+            KillSwitchEnabled = KillSwitch,
+            ShareWithLan = ShareWithLan,
+            LanSocksPort = LanSocksPort,
+            LanSocksUsername = LanSocksUsername.Trim(),
+            LanSocksPassword = sharingPassword,
+            ShareViaHotspot = ShareViaHotspot,
+            HotspotSocksPort = HotspotSocksPort,
+            RegionalPreset = RegionalPreset,
+            DomainStrategy = DomainStrategy,
+            DnsResolver = DnsResolver,
+            FakeDns = FakeDns,
+            BlockAds = BlockAds,
+            BlockMalware = BlockMalware,
+            BlockQuic = BlockQuic,
+            DirectBitTorrent = DirectBitTorrent,
+            KcpMode = string.IsNullOrWhiteSpace(KcpMode) ? "fast" : KcpMode.Trim(),
+            LocalTcpFlags = SplitEntries(LocalTcpFlags),
+            RemoteTcpFlags = SplitEntries(RemoteTcpFlags),
+            UpstreamOpenVpn = new UpstreamOpenVpnOptions
+            {
+                Enabled = UpstreamOpenVpnEnabled,
+                OvpnConfigText = UpstreamOpenVpnConfigText,
+                Username = UpstreamOpenVpnUsername,
+                Password = upstreamOpenVpnPassword,
+                RemoteHost = remoteHost,
+                RemotePort = remotePort,
+                Protocol = proto,
+            },
+        };
+    }
 
     public void ApplyTo(DesktopPreferences preferences)
     {
@@ -196,6 +225,17 @@ public sealed record ConnectionFormState
         preferences.RouteUdp = RouteUdp;
         preferences.RouteIpv4 = RouteIpv4;
         preferences.RouteIpv6 = RouteIpv6;
+
+        var (remoteHost, remotePort, proto) = UpstreamOpenVpnValidator.ParseServerInfo(UpstreamOpenVpnConfigText);
+        preferences.UpstreamOpenVpn = new UpstreamOpenVpnOptions
+        {
+            Enabled = UpstreamOpenVpnEnabled,
+            OvpnConfigText = UpstreamOpenVpnConfigText,
+            Username = UpstreamOpenVpnUsername,
+            RemoteHost = remoteHost,
+            RemotePort = remotePort,
+            Protocol = proto,
+        };
     }
 
     public static IReadOnlyList<string> SplitEntries(string? value) => (value ?? string.Empty)

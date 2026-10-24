@@ -91,6 +91,11 @@ public sealed partial class MainWindow
             }
 
             UpdateFakeDnsCompatibility();
+            UpstreamOpenVpnToggle.IsOn = state.UpstreamOpenVpnEnabled;
+            UpstreamOpenVpnOptionsPanel.Visibility = state.UpstreamOpenVpnEnabled ? Visibility.Visible : Visibility.Collapsed;
+            currentOvpnConfigText = state.UpstreamOpenVpnConfigText;
+            UpstreamOpenVpnUsernameBox.Text = state.UpstreamOpenVpnUsername;
+            UpdateUpstreamOpenVpnSummary();
         }
         finally
         {
@@ -99,6 +104,7 @@ public sealed partial class MainWindow
 
         // Compare later edits with what the controls actually show, not the source object:
         // text boxes normalize line endings and FakeDNS may have been switched off.
+
         appliedFormState = ReadForm();
         SetPendingChanges(false);
     }
@@ -140,6 +146,9 @@ public sealed partial class MainWindow
         RouteUdp = RouteUdpCheckBox.IsChecked == true,
         RouteIpv4 = RouteIpv4CheckBox.IsChecked == true,
         RouteIpv6 = RouteIpv6CheckBox.IsChecked == true,
+        UpstreamOpenVpnEnabled = UpstreamOpenVpnToggle.IsOn,
+        UpstreamOpenVpnConfigText = currentOvpnConfigText,
+        UpstreamOpenVpnUsername = UpstreamOpenVpnUsernameBox.Text,
     }.Normalize();
 
     private void TrackConfigurationChanges()
@@ -187,6 +196,7 @@ public sealed partial class MainWindow
         var wasPending = hasPendingConfigurationChanges;
         var pending = !ReadForm().IsEquivalentTo(appliedFormState) ||
             TransportKeyBox.Password.Length > 0 ||
+            UpstreamOpenVpnPasswordBox.Password.Length > 0 ||
             (SharePasswordBox.Password.Length > 0 &&
              !string.Equals(SharePasswordBox.Password, sessionSharePassword, StringComparison.Ordinal));
         SetPendingChanges(pending);
@@ -279,7 +289,7 @@ public sealed partial class MainWindow
             ShareWithLanSwitch, LanSharePortBox,
             ShareViaHotspotSwitch, HotspotPortBox,
             ShareUsernameBox, SharePasswordBox,
-            RouteTcpCheckBox, RouteUdpCheckBox, RouteIpv4CheckBox, RouteIpv6CheckBox };
+            RouteTcpCheckBox, RouteUdpCheckBox, RouteIpv4CheckBox, RouteIpv6CheckBox, UpstreamOpenVpnToggle, UpstreamOpenVpnUsernameBox, UpstreamOpenVpnPasswordBox };
 
     private void SetSaveActionsEnabled(bool enabled)
     {
@@ -293,6 +303,8 @@ public sealed partial class MainWindow
         configurationEditingEnabled = enabled;
         foreach (var control in ConfigurationControls()) control.IsEnabled = enabled;
         AdvancedTransportExpander.IsEnabled = enabled;
+        UpstreamOpenVpnExpander.IsEnabled = enabled;
+        ImportOvpnButton.IsEnabled = enabled;
         UpdateFakeDnsCompatibility();
     }
 
@@ -308,6 +320,7 @@ public sealed partial class MainWindow
     {
         ClearFieldErrors();
         AdvancedTransportExpander.IsExpanded |= errors.Any(IsAdvancedOptionError);
+        UpstreamOpenVpnExpander.IsExpanded |= errors.Any(e => e.Contains("OpenVPN", StringComparison.OrdinalIgnoreCase));
         Control? first = null;
         foreach (var message in errors)
         {
@@ -322,6 +335,10 @@ public sealed partial class MainWindow
                 var m when IsAdvancedOptionError(m) => AdvancedTransportExpander,
                 var m when m.Contains("hotspot") && m.Contains("port") => HotspotPortBox,
                 var m when m.Contains("SOCKS5 port") => LanSharePortBox,
+                var m when m.Contains("OpenVPN configuration", StringComparison.OrdinalIgnoreCase) ||
+                           m.Contains("'remote <host> <port>'", StringComparison.OrdinalIgnoreCase) => (Control)ImportOvpnButton,
+                var m when m.Contains("OpenVPN username", StringComparison.OrdinalIgnoreCase) => UpstreamOpenVpnUsernameBox,
+                var m when m.Contains("OpenVPN password", StringComparison.OrdinalIgnoreCase) => UpstreamOpenVpnPasswordBox,
                 var m when m.Contains("username") => ShareUsernameBox,
                 var m when m.Contains("password") => SharePasswordBox,
                 var m when m.Contains("direct-route destination") => DirectRouteDestinationsBox,
@@ -354,7 +371,7 @@ public sealed partial class MainWindow
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(control, message);
         }
         if (first is null) return;
-        NavigateTo(new Control[] { ProfilePicker, ServerEndpointBox, TransportKeyBox, KcpModeBox, LocalFlagsBox, RemoteFlagsBox, AdvancedTransportExpander }.Contains(first) ? "connection" : "routing");
+        NavigateTo(new Control[] { ProfilePicker, ServerEndpointBox, TransportKeyBox, KcpModeBox, LocalFlagsBox, RemoteFlagsBox, AdvancedTransportExpander, UpstreamOpenVpnExpander, ImportOvpnButton, UpstreamOpenVpnUsernameBox, UpstreamOpenVpnPasswordBox }.Contains(first) ? "connection" : "routing");
         for (DependencyObject? ancestor = first; ancestor is not null; ancestor = VisualTreeHelper.GetParent(ancestor))
             if (ancestor is Expander expander) expander.IsExpanded = true;
         var invalidControl = first;
@@ -367,7 +384,7 @@ public sealed partial class MainWindow
 
     private bool TryCreateBrokerSettings(out PaqetFireSettings settings, out string error)
     {
-        settings = ReadForm().ToSettings(TransportKeyBox.Password, SharePasswordBox.Password);
+        settings = ReadForm().ToSettings(TransportKeyBox.Password, SharePasswordBox.Password, UpstreamOpenVpnPasswordBox.Password);
 
         if (advancedNumberInputs.Any(control => !double.IsNaN(control.Value) &&
             (!double.IsFinite(control.Value) || control.Value != Math.Truncate(control.Value) || control.Value < int.MinValue || control.Value > int.MaxValue)))
@@ -384,6 +401,14 @@ public sealed partial class MainWindow
         if (hasSavedLanSocksPassword && validationCandidate.LanSocksPassword.Length == 0)
         {
             validationCandidate = validationCandidate with { LanSocksPassword = "saved-by-broker" };
+        }
+
+        if (hasSavedUpstreamOpenVpnPassword && string.IsNullOrEmpty(validationCandidate.UpstreamOpenVpn.Password))
+        {
+            validationCandidate = validationCandidate with
+            {
+                UpstreamOpenVpn = validationCandidate.UpstreamOpenVpn with { Password = "saved-by-broker" }
+            };
         }
         var errors = PaqetFireSettingsValidator.Validate(validationCandidate);
         ShowFieldErrors(errors);
@@ -413,6 +438,8 @@ public sealed partial class MainWindow
         SharePasswordBox.Password = string.Empty;
         hasSavedTransportKey = settings.HasTransportKey;
         hasSavedLanSocksPassword = settings.HasLanSocksPassword;
+        hasSavedUpstreamOpenVpnPassword = settings.HasUpstreamOpenVpnPassword;
+        UpstreamOpenVpnPasswordBox.Password = string.Empty;
         PopulateForm(ConnectionFormState.FromSettings(settings));
         TransportKeyBox.PlaceholderText = hasSavedTransportKey
             ? "Saved securely · leave blank to keep it"
@@ -420,6 +447,9 @@ public sealed partial class MainWindow
         SharePasswordBox.PlaceholderText = hasSavedLanSocksPassword
             ? "Saved securely · leave blank to keep it"
             : "At least 8 characters";
+        UpstreamOpenVpnPasswordBox.PlaceholderText = hasSavedUpstreamOpenVpnPassword
+            ? "Saved securely · leave blank to keep it"
+            : "Enter OpenVPN password";
         UpdateHotspotUri();
     }
 
@@ -450,6 +480,13 @@ public sealed partial class MainWindow
             hasSavedLanSocksPassword = true;
             SharePasswordBox.Password = string.Empty;
             SharePasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
+        }
+
+        if (settings.UpstreamOpenVpn.Enabled && !string.IsNullOrEmpty(settings.UpstreamOpenVpn.Password))
+        {
+            hasSavedUpstreamOpenVpnPassword = true;
+            UpstreamOpenVpnPasswordBox.Password = string.Empty;
+            UpstreamOpenVpnPasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
         }
 
         appliedFormState = ReadForm();

@@ -67,6 +67,8 @@ public sealed class DesktopPreferences
 
     public bool RouteIpv6 { get; set; } = true;
 
+    public UpstreamOpenVpnOptions UpstreamOpenVpn { get; set; } = new();
+
     public bool StartWithWindows { get; set; }
 
     public bool ConnectOnLaunch { get; set; }

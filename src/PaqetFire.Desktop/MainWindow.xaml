@@ -504,6 +504,51 @@
               </Border>
             </Expander>
 
+            <Expander x:Name="UpstreamOpenVpnExpander" Header="Upstream OpenVPN (Multi-hop)" IsExpanded="False"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+              <Border Padding="24" CornerRadius="20" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="16">
+                  <ToggleSwitch x:Name="UpstreamOpenVpnToggle" Header="Use Upstream OpenVPN"
+                                OffContent="Disabled (Direct Paqet exit)" OnContent="Enabled (Multi-hop exit)"
+                                Toggled="UpstreamOpenVpnToggle_Toggled" />
+                  <TextBlock Text="Route non-Iran traffic through a dedicated OpenVPN tunnel (e.g. Proton VPN) over your Paqet transport. Domestic traffic still routes directly."
+                             FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
+
+                  <StackPanel x:Name="UpstreamOpenVpnOptionsPanel" Spacing="14" Visibility="Collapsed">
+                    <InfoBar x:Name="ProtonVpnHelpBar" IsOpen="True" IsClosable="False" Severity="Informational"
+                             Title="Free Proton VPN Setup"
+                             Message="Requires a free Proton account. You can download an OpenVPN configuration file (TCP) and obtain your OpenVPN credentials from your Proton dashboard.">
+                      <InfoBar.ActionButton>
+                        <HyperlinkButton Content="Open Proton VPN Setup Guide" Click="OpenProtonVpnGuide_Click" />
+                      </InfoBar.ActionButton>
+                    </InfoBar>
+
+                    <StackPanel Spacing="8">
+                      <TextBlock Text="Configuration file (.ovpn)" FontWeight="SemiBold" FontSize="13" />
+                      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <Button x:Name="ImportOvpnButton" Content="Import .ovpn file" Click="ImportOvpnFileButton_Click" />
+                        <TextBlock x:Name="UpstreamOpenVpnSummaryText" Text="No configuration file imported."
+                                   VerticalAlignment="Center" Opacity="0.75" />
+                      </StackPanel>
+                    </StackPanel>
+
+                    <Grid SizeChanged="FormGrid_SizeChanged" ColumnSpacing="14">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBox x:Name="UpstreamOpenVpnUsernameBox" Header="OpenVPN Username"
+                               PlaceholderText="OpenVPN username from Proton dashboard" />
+                      <PasswordBox x:Name="UpstreamOpenVpnPasswordBox" Grid.Column="1" Header="OpenVPN Password"
+                                   PlaceholderText="Enter OpenVPN password" PasswordRevealMode="Peek" />
+                    </Grid>
+                    <TextBlock Text="Your OpenVPN password is encrypted using Windows DPAPI and stored securely."
+                               FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </Expander>
+
             <StackPanel x:Name="ConnectionSaveActions" Orientation="Horizontal" Spacing="10">
               <Button Content="Save profile" Style="{StaticResource AccentButtonStyle}" Click="SaveProfileButton_Click"
                       ToolTipService.ToolTip="Save (Ctrl+S)" />

@@ -956,9 +956,10 @@ public sealed partial class MainWindow : Window
             ApplyStartupRegistration(false);
             await SavePreferencesAsync();
             networkAutomationPolicy = new();
-            hasSavedTransportKey = hasSavedLanSocksPassword = false;
+            hasSavedTransportKey = hasSavedLanSocksPassword = hasSavedUpstreamOpenVpnPassword = false;
             sessionSharePassword = string.Empty;
-            TransportKeyBox.Password = SharePasswordBox.Password = string.Empty;
+            TransportKeyBox.Password = SharePasswordBox.Password = UpstreamOpenVpnPasswordBox.Password = string.Empty;
+            currentOvpnConfigText = string.Empty;
             ApplyPreferences(preferences);
             brokerSettingsApplied = false;
             if (lastSnapshot is { } snapshot) OnSnapshotReceived(snapshot);
