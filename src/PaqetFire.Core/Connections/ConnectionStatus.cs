@@ -8,4 +8,5 @@ public sealed record ConnectionStatus(
     EngineStatus Xray,
     EngineStatus ProxiFyre,
     string? Detail = null,
-    DateTimeOffset? ObservedAt = null);
+    DateTimeOffset? ObservedAt = null,
+    EngineStatus? OpenVpn = null);

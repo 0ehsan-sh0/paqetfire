@@ -145,6 +145,32 @@ public sealed class ConnectionControllerTests
         Assert.Equal(ConnectionState.Connected, (await controller.GetStatusAsync(CancellationToken.None)).State);
     }
 
+    [Fact]
+    public async Task ConnectAndDisconnect_WithOpenVpn_ExecutesInCorrectOrder()
+    {
+        var events = new List<string>();
+        var stopOrder = new List<EngineKind>();
+        var paqet = new FakeEngineAdapter(EngineKind.Paqet) { Events = events };
+        var xray = new FakeEngineAdapter(EngineKind.Xray) { Events = events };
+        var openVpn = new FakeEngineAdapter(EngineKind.OpenVpn, stopOrder) { Events = events };
+        var proxiFyre = new FakeEngineAdapter(EngineKind.ProxiFyre, stopOrder) { Events = events };
+
+        using var controller = new ConnectionController(paqet, xray, proxiFyre, openVpn);
+        await controller.ConnectAsync(CancellationToken.None);
+
+        var status = await controller.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(ConnectionState.Connected, status.State);
+        Assert.NotNull(status.OpenVpn);
+        Assert.Equal(EngineState.Running, status.OpenVpn.State);
+
+        var openVpnStartIndex = events.IndexOf("start OpenVpn");
+        var proxiFyreStartIndex = events.IndexOf("start ProxiFyre");
+        Assert.True(openVpnStartIndex < proxiFyreStartIndex);
+
+        await controller.DisconnectAsync(CancellationToken.None);
+        Assert.Equal(EngineKind.ProxiFyre, stopOrder[0]);
+        Assert.Equal(EngineKind.OpenVpn, stopOrder[1]);
+    }
     private sealed class FakeEngineAdapter(
         EngineKind kind,
         IList<EngineKind>? stopOrder = null) : IEngineAdapter

@@ -122,6 +122,7 @@ public enum ConnectionStage
     VerifyingPayload,
     StartingTransport,
     StartingPolicy,
+    StartingVpn,
     StartingCapture,
     ProbingTunnel,
     RecoveringTransport,

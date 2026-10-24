@@ -9,6 +9,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
     private readonly IEngineAdapter _paqet;
     private readonly IEngineAdapter _xray;
     private readonly IEngineAdapter _proxiFyre;
+    private readonly IEngineAdapter? _openVpn;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private ConnectionState? _transitionState;
     private bool _disposed;
@@ -16,7 +17,8 @@ public sealed class ConnectionController : IConnectionController, IDisposable
     public ConnectionController(
         IEngineAdapter paqet,
         IEngineAdapter xray,
-        IEngineAdapter proxiFyre)
+        IEngineAdapter proxiFyre,
+        IEngineAdapter? openVpn = null)
     {
         ArgumentNullException.ThrowIfNull(paqet);
         ArgumentNullException.ThrowIfNull(xray);
@@ -39,9 +41,17 @@ public sealed class ConnectionController : IConnectionController, IDisposable
                 nameof(proxiFyre));
         }
 
+        if (openVpn is not null && openVpn.Kind != EngineKind.OpenVpn)
+        {
+            throw new ArgumentException(
+                "The OpenVPN adapter must identify itself as EngineKind.OpenVpn.",
+                nameof(openVpn));
+        }
+
         _paqet = paqet;
         _xray = xray;
         _proxiFyre = proxiFyre;
+        _openVpn = openVpn;
     }
 
     // Deliberately does not take the transition gate so the desktop can observe a long
@@ -54,7 +64,10 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         var paqetStatus = await _paqet.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var xrayStatus = await _xray.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var proxiFyreStatus = await _proxiFyre.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        var derivedState = DeriveState(paqetStatus.State, xrayStatus.State, proxiFyreStatus.State);
+        var openVpnStatus = _openVpn is not null
+            ? await _openVpn.GetStatusAsync(cancellationToken).ConfigureAwait(false)
+            : null;
+        var derivedState = DeriveState(paqetStatus.State, xrayStatus.State, proxiFyreStatus.State, openVpnStatus?.State);
 
         if (transitionState is not null && transitionState == _transitionState)
         {
@@ -66,8 +79,9 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             paqetStatus,
             xrayStatus,
             proxiFyreStatus,
-            CreateStatusDetail(derivedState, paqetStatus.State, xrayStatus.State, proxiFyreStatus.State),
-            DateTimeOffset.UtcNow);
+            CreateStatusDetail(derivedState, paqetStatus.State, xrayStatus.State, proxiFyreStatus.State, openVpnStatus?.State),
+            DateTimeOffset.UtcNow,
+            openVpnStatus);
     }
 
     public ValueTask ConnectAsync(CancellationToken cancellationToken) => ConnectAsync(null, cancellationToken);
@@ -84,17 +98,19 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             var paqetInitiallyRunning = await IsRunningAsync(_paqet, cancellationToken).ConfigureAwait(false);
             var xrayInitiallyRunning = await IsRunningAsync(_xray, cancellationToken).ConfigureAwait(false);
             var proxiFyreInitiallyRunning = await IsRunningAsync(_proxiFyre, cancellationToken).ConfigureAwait(false);
+            var openVpnInitiallyRunning = _openVpn is not null && await IsRunningAsync(_openVpn, cancellationToken).ConfigureAwait(false);
 
-            if (paqetInitiallyRunning && xrayInitiallyRunning && proxiFyreInitiallyRunning)
+            if (paqetInitiallyRunning && xrayInitiallyRunning && proxiFyreInitiallyRunning && (_openVpn is null || openVpnInitiallyRunning))
             {
                 return;
             }
 
+            var openVpnStartAttempted = false;
             var proxiFyreStartAttempted = false;
 
             // Paqet and Xray start together: Xray only dials Paqet when traffic arrives.
             // ProxiFyre starts last so application capture is only enabled once the
-            // complete local SOCKS chain behind it is running.
+            // complete local chain behind it is running.
             stageStarted?.Invoke(ConnectionStage.StartingTransport);
             var (carrierEngine, carrierError) = await StartCarriersAsync(
                     paqetInitiallyRunning ? null : _paqet,
@@ -104,6 +120,22 @@ public sealed class ConnectionController : IConnectionController, IDisposable
                 .ConfigureAwait(false);
             var failedEngine = carrierEngine;
             var error = carrierError;
+
+            if (error is null && _openVpn is not null && !openVpnInitiallyRunning)
+            {
+                try
+                {
+                    stageStarted?.Invoke(ConnectionStage.StartingVpn);
+                    openVpnStartAttempted = true;
+                    await StartAndVerifyAsync(_openVpn, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception openVpnError)
+                {
+                    failedEngine = EngineKind.OpenVpn;
+                    error = openVpnError;
+                }
+            }
+
             if (error is null)
             {
                 try
@@ -127,6 +159,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
                 var rollbackErrors = await RollBackConnectAsync(
                         !paqetInitiallyRunning,
                         !xrayInitiallyRunning,
+                        openVpnStartAttempted,
                         proxiFyreStartAttempted)
                     .ConfigureAwait(false);
 
@@ -167,6 +200,22 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             catch (Exception error)
             {
                 throw new ConnectionTransitionException("disconnect", EngineKind.ProxiFyre, error);
+            }
+
+            if (_openVpn is not null)
+            {
+                try
+                {
+                    await StopAndVerifyAsync(_openVpn, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception error)
+                {
+                    throw new ConnectionTransitionException("disconnect", EngineKind.OpenVpn, error);
+                }
             }
 
             try
@@ -221,7 +270,23 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             }
             catch (Exception error)
             {
-                throw new ConnectionTransitionException("arm routing kill switch", EngineKind.ProxiFyre, error);
+                throw new ConnectionTransitionException("guard", EngineKind.ProxiFyre, error);
+            }
+
+            if (_openVpn is not null)
+            {
+                try
+                {
+                    await StopAndVerifyAsync(_openVpn, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception error)
+                {
+                    throw new ConnectionTransitionException("guard", EngineKind.OpenVpn, error);
+                }
             }
 
             try
@@ -234,7 +299,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             }
             catch (Exception error)
             {
-                throw new ConnectionTransitionException("arm routing kill switch", EngineKind.Xray, error);
+                throw new ConnectionTransitionException("guard", EngineKind.Xray, error);
             }
 
             try
@@ -247,7 +312,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             }
             catch (Exception error)
             {
-                throw new ConnectionTransitionException("arm routing kill switch", EngineKind.Paqet, error);
+                throw new ConnectionTransitionException("guard", EngineKind.Paqet, error);
             }
         }
         finally
@@ -257,8 +322,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         }
     }
 
-    public ValueTask RestartTransportAsync(CancellationToken cancellationToken) =>
-        RestartTransportAsync(includePolicy: false, cancellationToken);
+    public ValueTask RestartTransportAsync(CancellationToken cancellationToken) => RestartTransportAsync(includePolicy: false, cancellationToken);
 
     public async ValueTask RestartTransportAsync(bool includePolicy, CancellationToken cancellationToken)
     {
@@ -267,43 +331,25 @@ public sealed class ConnectionController : IConnectionController, IDisposable
 
         try
         {
+            var running = await IsRunningAsync(_paqet, cancellationToken).ConfigureAwait(false);
+            if (!running)
+            {
+                return;
+            }
+
             _transitionState = ConnectionState.Connecting;
-            var stoppingEngine = EngineKind.Xray;
-            try
-            {
-                // ProxiFyre keeps capturing throughout, so routed connections fail closed
-                // against the stopped Xray listener instead of going direct.
-                if (includePolicy)
-                {
-                    await StopAndVerifyAsync(_xray, cancellationToken).ConfigureAwait(false);
-                }
 
-                stoppingEngine = EngineKind.Paqet;
-                await StopAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
+            if (includePolicy)
             {
-                throw;
-            }
-            catch (Exception error)
-            {
-                throw new ConnectionTransitionException("restart transport", stoppingEngine, error);
+                await StopAndVerifyAsync(_xray, cancellationToken).ConfigureAwait(false);
             }
 
-            var (failedEngine, startError) = await StartCarriersAsync(
-                    _paqet,
-                    includePolicy ? _xray : null,
-                    null,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (startError is OperationCanceledException)
-            {
-                ExceptionDispatchInfo.Throw(startError);
-            }
+            await StopAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
+            await StartAndVerifyAsync(_paqet, cancellationToken).ConfigureAwait(false);
 
-            if (startError is not null)
+            if (includePolicy)
             {
-                throw new ConnectionTransitionException("restart transport", failedEngine, startError);
+                await StartAndVerifyAsync(_xray, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -322,6 +368,10 @@ public sealed class ConnectionController : IConnectionController, IDisposable
 
         _disposed = true;
         _transitionGate.Dispose();
+        (_proxiFyre as IDisposable)?.Dispose();
+        (_openVpn as IDisposable)?.Dispose();
+        (_xray as IDisposable)?.Dispose();
+        (_paqet as IDisposable)?.Dispose();
     }
 
     private static async ValueTask<bool> IsRunningAsync(
@@ -329,12 +379,6 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         CancellationToken cancellationToken)
     {
         var status = await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-
-        if (status.State == EngineState.NotInstalled)
-        {
-            throw new InvalidOperationException($"The {adapter.Kind} engine is not installed.");
-        }
-
         return status.State == EngineState.Running;
     }
 
@@ -352,10 +396,6 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         }
     }
 
-    /// <summary>
-    /// Starts Paqet and Xray concurrently. A failure cancels the sibling so the caller can
-    /// roll back promptly; the reported error is the root cause rather than that cancellation.
-    /// </summary>
     private static async ValueTask<(EngineKind Engine, Exception? Error)> StartCarriersAsync(
         IEngineAdapter? paqet,
         IEngineAdapter? xray,
@@ -437,6 +477,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
     private async ValueTask<IReadOnlyList<Exception>> RollBackConnectAsync(
         bool paqetStartAttempted,
         bool xrayStartAttempted,
+        bool openVpnStartAttempted,
         bool proxiFyreStartAttempted)
     {
         List<Exception>? errors = null;
@@ -444,6 +485,11 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         if (proxiFyreStartAttempted)
         {
             await TryRollbackStopAsync(_proxiFyre).ConfigureAwait(false);
+        }
+
+        if (openVpnStartAttempted && _openVpn is not null)
+        {
+            await TryRollbackStopAsync(_openVpn).ConfigureAwait(false);
         }
 
         if (xrayStartAttempted)
@@ -462,8 +508,6 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         {
             try
             {
-                // Rollback must restore a safe state even after caller cancellation, so
-                // adapters are expected to bound their own Stop/Start operations.
                 await StopAndVerifyAsync(adapter, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception error)
@@ -479,39 +523,42 @@ public sealed class ConnectionController : IConnectionController, IDisposable
     private static ConnectionState DeriveState(
         EngineState paqet,
         EngineState xray,
-        EngineState proxiFyre)
+        EngineState proxiFyre,
+        EngineState? openVpn = null)
     {
-        if (paqet == EngineState.NotInstalled || xray == EngineState.NotInstalled || proxiFyre == EngineState.NotInstalled)
+        if (paqet == EngineState.NotInstalled || xray == EngineState.NotInstalled || proxiFyre == EngineState.NotInstalled || openVpn == EngineState.NotInstalled)
         {
             return ConnectionState.NotReady;
         }
 
-        if (paqet == EngineState.Running && xray == EngineState.Running && proxiFyre == EngineState.Running)
+        var vpnOk = openVpn is null or EngineState.Running;
+        if (paqet == EngineState.Running && xray == EngineState.Running && proxiFyre == EngineState.Running && vpnOk)
         {
             return ConnectionState.Connected;
         }
 
-        if (paqet == EngineState.Stopped && xray == EngineState.Stopped && proxiFyre == EngineState.Stopped)
+        var vpnStopped = openVpn is null or EngineState.Stopped;
+        if (paqet == EngineState.Stopped && xray == EngineState.Stopped && proxiFyre == EngineState.Stopped && vpnStopped)
         {
             return ConnectionState.Disconnected;
         }
 
-        if (paqet == EngineState.Stopped && xray == EngineState.Stopped && proxiFyre == EngineState.Running)
+        if (paqet == EngineState.Stopped && xray == EngineState.Stopped && proxiFyre == EngineState.Running && vpnStopped)
         {
             return ConnectionState.Guarded;
         }
 
-        if (paqet == EngineState.Faulted || xray == EngineState.Faulted || proxiFyre == EngineState.Faulted)
+        if (paqet == EngineState.Faulted || xray == EngineState.Faulted || proxiFyre == EngineState.Faulted || openVpn == EngineState.Faulted)
         {
             return ConnectionState.Faulted;
         }
 
-        if (paqet == EngineState.Starting || xray == EngineState.Starting || proxiFyre == EngineState.Starting)
+        if (paqet == EngineState.Starting || xray == EngineState.Starting || proxiFyre == EngineState.Starting || openVpn == EngineState.Starting)
         {
             return ConnectionState.Connecting;
         }
 
-        if (paqet == EngineState.Stopping || xray == EngineState.Stopping || proxiFyre == EngineState.Stopping)
+        if (paqet == EngineState.Stopping || xray == EngineState.Stopping || proxiFyre == EngineState.Stopping || openVpn == EngineState.Stopping)
         {
             return ConnectionState.Disconnecting;
         }
@@ -523,12 +570,17 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         ConnectionState connection,
         EngineState paqet,
         EngineState xray,
-        EngineState proxiFyre) => connection switch
+        EngineState proxiFyre,
+        EngineState? openVpn = null) => connection switch
         {
             ConnectionState.NotReady => "One or more bundled engines are not installed.",
             ConnectionState.Guarded => "The routing kill switch is active; routed applications cannot connect directly.",
-            ConnectionState.Degraded => $"Engine states do not form a safe connection (Paqet: {paqet}, Xray: {xray}, ProxiFyre: {proxiFyre}).",
-            ConnectionState.Faulted => $"An engine is faulted (Paqet: {paqet}, Xray: {xray}, ProxiFyre: {proxiFyre}).",
+            ConnectionState.Degraded => openVpn is not null
+                ? $"Engine states do not form a safe connection (Paqet: {paqet}, Xray: {xray}, OpenVPN: {openVpn}, ProxiFyre: {proxiFyre})."
+                : $"Engine states do not form a safe connection (Paqet: {paqet}, Xray: {xray}, ProxiFyre: {proxiFyre}).",
+            ConnectionState.Faulted => openVpn is not null
+                ? $"An engine is faulted (Paqet: {paqet}, Xray: {xray}, OpenVPN: {openVpn}, ProxiFyre: {proxiFyre})."
+                : $"An engine is faulted (Paqet: {paqet}, Xray: {xray}, ProxiFyre: {proxiFyre}).",
             _ => null,
         };
 }
