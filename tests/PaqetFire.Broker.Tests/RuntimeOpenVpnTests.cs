@@ -29,12 +29,13 @@ public sealed class RuntimeOpenVpnTests
         Assert.True(fixture.Xray.Last.IsOpenVpnActive);
         Assert.True(File.Exists(fixture.Paths.ResolvedOpenVpnConfigPath));
         Assert.True(File.Exists(fixture.Paths.ResolvedOpenVpnAuthPath));
-        Assert.True(File.Exists(fixture.Paths.ResolvedOpenVpnSocksAuthPath));
+        Assert.False(File.Exists(fixture.Paths.ResolvedOpenVpnSocksAuthPath));
         Assert.Contains(snapshot.Engines, e => e.Engine == EngineKind.OpenVpn);
         Assert.Equal(4, snapshot.Engines.Count);
 
         var runtimeOvpn = await File.ReadAllTextAsync(fixture.Paths.ResolvedOpenVpnConfigPath);
         Assert.Contains("socks-proxy 127.0.0.1 1080", runtimeOvpn);
+        Assert.DoesNotContain("socks-auth.txt", runtimeOvpn);
         Assert.Contains("auth-user-pass", runtimeOvpn);
         Assert.DoesNotContain("windows-driver", runtimeOvpn);
         Assert.Contains("dev tun", runtimeOvpn);

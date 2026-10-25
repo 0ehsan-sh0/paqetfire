@@ -1580,10 +1580,12 @@ public sealed class PaqetFireRuntime(
             settings.LocalTcpFlags,
             settings.RemoteTcpFlags,
             settings.KcpMode);
+        var isOpenVpnActive = settings.UpstreamOpenVpn.Enabled &&
+                              !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText);
         paqetProfile = settings.Advanced.ApplyTo(paqetProfile) with
         {
-            SocksUsername = engineCredentials.Username,
-            SocksPassword = engineCredentials.Password,
+            SocksUsername = isOpenVpnActive ? null : engineCredentials.Username,
+            SocksPassword = isOpenVpnActive ? null : engineCredentials.Password,
         };
 
         var notices = new List<string>();
@@ -1621,8 +1623,6 @@ public sealed class PaqetFireRuntime(
                    (routingData is null
                        ? RoutingDataSet.Bundled
                        : await routingData.ResolveForLaunchAsync(cancellationToken).ConfigureAwait(false));
-        var isOpenVpnActive = settings.UpstreamOpenVpn.Enabled &&
-                              !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText);
         var blockMalware = settings.BlockMalware && data.SupportsMalwareCategories;
         var paqetText = paqetWriter.Write(paqetProfile, settings.TransportKey);
         var xrayText = xrayWriter.Write(new XrayRoutingPolicy(
@@ -1658,13 +1658,13 @@ public sealed class PaqetFireRuntime(
         if (isOpenVpnActive)
         {
             protonAuthText = $"{settings.UpstreamOpenVpn.Username}\n{settings.UpstreamOpenVpn.Password}\n";
-            socksAuthText = $"{engineCredentials.Username}\n{engineCredentials.Password}\n";
+            socksAuthText = null;
             var writer = openVpnWriter ?? new OpenVpnConfigurationWriter();
             openVpnText = writer.GenerateRuntimeConfig(
                 settings.UpstreamOpenVpn.OvpnConfigText!,
                 1080,
                 paths.ResolvedOpenVpnAuthPath,
-                paths.ResolvedOpenVpnSocksAuthPath,
+                socksAuthFilePath: null,
                 "PaqetFire-VPN");
         }
 
@@ -1707,6 +1707,17 @@ public sealed class PaqetFireRuntime(
             if (configuration.SocksAuthText is not null)
             {
                 await File.WriteAllTextAsync(paths.ResolvedOpenVpnSocksAuthPath, configuration.SocksAuthText, cancellationToken).ConfigureAwait(false);
+            }
+            else if (File.Exists(paths.ResolvedOpenVpnSocksAuthPath))
+            {
+                try
+                {
+                    File.Delete(paths.ResolvedOpenVpnSocksAuthPath);
+                }
+                catch
+                {
+                    // Best-effort cleanup
+                }
             }
             await File.WriteAllTextAsync(paths.ResolvedOpenVpnConfigPath, configuration.OpenVpnText, cancellationToken).ConfigureAwait(false);
         }

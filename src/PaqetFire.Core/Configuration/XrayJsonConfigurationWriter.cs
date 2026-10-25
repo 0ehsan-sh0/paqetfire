@@ -188,7 +188,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteEndArray();
 
             writer.WriteStartArray("outbounds");
-            WritePaqetOutbound(writer, policy.EngineCredentials);
+            WritePaqetOutbound(writer, policy.IsOpenVpnActive ? null : policy.EngineCredentials);
             if (dns is null)
             {
                 if (string.IsNullOrWhiteSpace(policy.PhysicalAdapterIp))
