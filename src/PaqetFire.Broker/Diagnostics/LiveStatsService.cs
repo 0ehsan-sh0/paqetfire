@@ -1,3 +1,4 @@
+using PaqetFire.Core.Engines;
 using PaqetFire.Core.Connections;
 using PaqetFire.Core.Ipc;
 
@@ -62,7 +63,8 @@ public sealed class LiveStatsService(
             logger.LogDebug(exception, "Xray traffic counters are unavailable.");
         }
 
-        current.ScheduleProbes(now);
+        var isOpenVpn = status.OpenVpn?.State == EngineState.Running;
+        current.ScheduleProbes(now, isOpenVpn);
         return new LiveConnectionStats(
             now,
             IsConnected: true,
@@ -121,7 +123,7 @@ public sealed class LiveStatsService(
             ? new DateTimeOffset(ticks, TimeSpan.Zero)
             : null;
 
-        public void ScheduleProbes(DateTimeOffset now)
+        public void ScheduleProbes(DateTimeOffset now, bool isOpenVpnActive = false)
         {
             var needsLatency = now >= nextLatencyAt;
             var needsAddress = PublicAddress is null && now >= nextPublicAddressAt;
@@ -158,7 +160,7 @@ public sealed class LiveStatsService(
 
                     if (needsAddress)
                     {
-                        var address = await owner.tunnelProbe.GetPublicAddressAsync(token).ConfigureAwait(false);
+                        var address = await owner.tunnelProbe.GetPublicAddressAsync(useDirectRoute: isOpenVpnActive, token).ConfigureAwait(false);
                         if (address is not null)
                         {
                             PublicAddressCountryCode = await TryFindCountryAsync(address, token).ConfigureAwait(false);

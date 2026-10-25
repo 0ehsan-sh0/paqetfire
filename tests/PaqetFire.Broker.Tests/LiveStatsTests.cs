@@ -151,4 +151,25 @@ public sealed class LiveStatsTests
     }
 
     private static byte[] Concat(params byte[][] parts) => parts.SelectMany(part => part).ToArray();
+
+    [Fact]
+    public void ApplyProfile_ShowsOpenVpnEndpointAndProtocol_WhenUpstreamOpenVpnEnabled()
+    {
+        var vm = new LiveStatsViewModel();
+        var settings = PaqetFireSettingsView.FromSettings(new PaqetFireSettings
+        {
+            ServerEndpoint = "51.254.208.73:8443",
+            KcpMode = "fast2",
+            UpstreamOpenVpn = new UpstreamOpenVpnOptions
+            {
+                Enabled = true,
+                OvpnConfigText = "client\ndev tun\nproto tcp\nremote 149.88.97.110 443"
+            }
+        });
+
+        vm.ApplyProfile(settings);
+
+        Assert.Equal("149.88.97.110:443 (TCP)", vm.EndpointText);
+        Assert.Equal("OpenVPN (TCP)", vm.ProtocolText);
+    }
 }

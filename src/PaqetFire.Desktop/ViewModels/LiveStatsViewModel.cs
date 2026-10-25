@@ -94,6 +94,17 @@ public sealed class LiveStatsViewModel : INotifyPropertyChanged
 
     public void ApplyProfile(PaqetFireSettingsView? settings)
     {
+        if (settings?.UpstreamOpenVpn?.Enabled == true &&
+            !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText))
+        {
+            var (remoteHost, remotePort, proto) = UpstreamOpenVpnValidator.ParseServerInfo(settings.UpstreamOpenVpn.OvpnConfigText);
+            var port = remotePort ?? 1194;
+            var protocol = (proto ?? "tcp").ToUpperInvariant();
+            EndpointText = !string.IsNullOrWhiteSpace(remoteHost) ? $@"{remoteHost}:{port} ({protocol})" : (string.IsNullOrWhiteSpace(settings.ServerEndpoint) ? "—" : settings.ServerEndpoint);
+            ProtocolText = $@"OpenVPN ({protocol})";
+            return;
+        }
+
         ProtocolText = LiveStatsText.FormatProtocol(settings?.KcpMode, settings?.Advanced.KcpBlock);
         EndpointText = string.IsNullOrWhiteSpace(settings?.ServerEndpoint) ? "—" : settings.ServerEndpoint;
     }
