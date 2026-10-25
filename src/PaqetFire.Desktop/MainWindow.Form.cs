@@ -482,11 +482,11 @@ public sealed partial class MainWindow
             SharePasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
         }
 
-        if (settings.UpstreamOpenVpn.Enabled && !string.IsNullOrEmpty(settings.UpstreamOpenVpn.Password))
+        if (settings.UpstreamOpenVpn.Enabled || hasSavedUpstreamOpenVpnPassword)
         {
-            hasSavedUpstreamOpenVpnPassword = true;
+            if (!string.IsNullOrEmpty(settings.UpstreamOpenVpn.Password)) { hasSavedUpstreamOpenVpnPassword = true; }
             UpstreamOpenVpnPasswordBox.Password = string.Empty;
-            UpstreamOpenVpnPasswordBox.PlaceholderText = "Saved securely · leave blank to keep it";
+            UpstreamOpenVpnPasswordBox.PlaceholderText = hasSavedUpstreamOpenVpnPassword ? "Saved securely · leave blank to keep it" : "Enter OpenVPN password";
         }
 
         appliedFormState = ReadForm();

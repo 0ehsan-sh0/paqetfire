@@ -17,6 +17,7 @@ public sealed partial class MainWindow
             UpstreamOpenVpnOptionsPanel.Visibility = UpstreamOpenVpnToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        if (UpstreamOpenVpnPasswordBox is not null && hasSavedUpstreamOpenVpnPassword) { UpstreamOpenVpnPasswordBox.PlaceholderText = "Saved securely · leave blank to keep it"; }
         ConfigurationEdited();
     }
 

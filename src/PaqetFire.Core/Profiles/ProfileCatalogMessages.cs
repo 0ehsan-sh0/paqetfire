@@ -28,7 +28,8 @@ public sealed record ConnectionProfileSummary(
     bool IsActive,
     bool IsDefault,
     bool HasTransportKey,
-    bool HasSharingPassword);
+    bool HasSharingPassword,
+    bool HasUpstreamOpenVpnPassword = false);
 
 public sealed record ProfileCatalogView(IReadOnlyList<ConnectionProfileSummary> Profiles)
 {
@@ -39,5 +40,6 @@ public sealed record ProfileCatalogView(IReadOnlyList<ConnectionProfileSummary> 
             profile.Id == catalog.ActiveProfileId,
             profile.Id == catalog.DefaultProfileId,
             !string.IsNullOrEmpty(profile.Settings.TransportKey),
-            !string.IsNullOrEmpty(profile.Settings.LanSocksPassword))).ToArray());
+            !string.IsNullOrEmpty(profile.Settings.LanSocksPassword),
+            !string.IsNullOrEmpty(profile.Settings.UpstreamOpenVpn.Password))).ToArray());
 }

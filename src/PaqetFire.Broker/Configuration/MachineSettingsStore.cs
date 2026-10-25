@@ -10,6 +10,7 @@ public sealed class MachineSettingsStore(string settingsPath, ProtectedDirectory
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("PaqetFire.Settings.v1");
     private static readonly byte[] LanPasswordEntropy = Encoding.UTF8.GetBytes("PaqetFire.LanSocksPassword.v1");
+    private static readonly byte[] OpenVpnPasswordEntropy = Encoding.UTF8.GetBytes("PaqetFire.OpenVpnPassword.v1");
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -50,10 +51,14 @@ public sealed class MachineSettingsStore(string settingsPath, ProtectedDirectory
             var lanPassword = string.IsNullOrEmpty(stored.ProtectedLanSocksPassword)
                 ? string.Empty
                 : Unprotect(stored.ProtectedLanSocksPassword, LanPasswordEntropy);
+            var openVpnPassword = string.IsNullOrEmpty(stored.ProtectedOpenVpnPassword)
+                ? string.Empty
+                : Unprotect(stored.ProtectedOpenVpnPassword, OpenVpnPasswordEntropy);
             return stored.Settings with
             {
                 TransportKey = key,
                 LanSocksPassword = lanPassword,
+                UpstreamOpenVpn = stored.Settings.UpstreamOpenVpn with { Password = openVpnPassword },
             };
         }
         finally
@@ -76,11 +81,15 @@ public sealed class MachineSettingsStore(string settingsPath, ProtectedDirectory
                 {
                     TransportKey = string.Empty,
                     LanSocksPassword = string.Empty,
+                    UpstreamOpenVpn = settings.UpstreamOpenVpn with { Password = null },
                 },
                 Protect(settings.TransportKey, Entropy),
                 string.IsNullOrEmpty(settings.LanSocksPassword)
                     ? null
-                    : Protect(settings.LanSocksPassword, LanPasswordEntropy));
+                    : Protect(settings.LanSocksPassword, LanPasswordEntropy),
+                string.IsNullOrEmpty(settings.UpstreamOpenVpn.Password)
+                    ? null
+                    : Protect(settings.UpstreamOpenVpn.Password, OpenVpnPasswordEntropy));
             var temporary = _settingsPath + $".{Guid.NewGuid():N}.new";
             try
             {
@@ -154,5 +163,6 @@ public sealed class MachineSettingsStore(string settingsPath, ProtectedDirectory
     private sealed record StoredSettings(
         PaqetFireSettings Settings,
         string ProtectedTransportKey,
-        string? ProtectedLanSocksPassword = null);
+        string? ProtectedLanSocksPassword = null,
+        string? ProtectedOpenVpnPassword = null);
 }

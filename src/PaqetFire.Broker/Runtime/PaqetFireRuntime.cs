@@ -217,6 +217,17 @@ public sealed class PaqetFireRuntime(
                 settings = settings with { LanSocksPassword = existing.LanSocksPassword };
             }
 
+            if (string.IsNullOrEmpty(settings.UpstreamOpenVpn.Password) && existing is not null && !string.IsNullOrEmpty(existing.UpstreamOpenVpn.Password))
+            {
+                settings = settings with
+                {
+                    UpstreamOpenVpn = settings.UpstreamOpenVpn with
+                    {
+                        Password = existing.UpstreamOpenVpn.Password
+                    }
+                };
+            }
+
             var errors = PaqetFireSettingsValidator.Validate(settings);
             if (errors.Count > 0)
             {
