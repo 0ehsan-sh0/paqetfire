@@ -10,6 +10,9 @@ public interface ITunnelProbe
     /// <summary>Round-trip time of a tiny HTTP request over a warm tunnel connection.</summary>
     ValueTask<int?> MeasureLatencyAsync(CancellationToken cancellationToken);
 
+    ValueTask<int?> MeasureLatencyAsync(bool useDirectRoute, CancellationToken cancellationToken) =>
+        MeasureLatencyAsync(cancellationToken);
+
     ValueTask<IPAddress?> GetPublicAddressAsync(CancellationToken cancellationToken);
 
     ValueTask<IPAddress?> GetPublicAddressAsync(bool useDirectRoute, CancellationToken cancellationToken) =>
@@ -25,12 +28,13 @@ public interface ITunnelProbe
 /// </summary>
 public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
 {
-    private static readonly Uri LatencyUri = new("http://cp.cloudflare.com/generate_204");
+    private static readonly Uri LatencyUri = new("http://connectivitycheck.gstatic.com/generate_204");
+    private static readonly Uri FallbackLatencyUri = new("http://cp.cloudflare.com/generate_204");
     private static readonly Uri PublicAddressUri = new("https://api4.ipify.org");
     private static readonly Uri[] ReachabilityUris =
     [
         LatencyUri,
-        new("http://connectivitycheck.gstatic.com/generate_204"),
+        FallbackLatencyUri,
     ];
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(6);
 
@@ -60,6 +64,7 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
         {
             Timeout = ProbeTimeout,
         };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) PaqetFire/0.6.35");
 
         // No pooling: a warm stream can outlive a dead carrier for a while, while each
         // new stream must be negotiated through Paqet with the server.
@@ -76,6 +81,7 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
         {
             Timeout = ReachabilityTimeout,
         };
+        reachabilityClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) PaqetFire/0.6.35");
 
         directClient = new HttpClient(new SocketsHttpHandler
         {
@@ -87,21 +93,26 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
         {
             Timeout = ProbeTimeout,
         };
+        directClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) PaqetFire/0.6.35");
     }
 
-    public async ValueTask<int?> MeasureLatencyAsync(CancellationToken cancellationToken)
+    public ValueTask<int?> MeasureLatencyAsync(CancellationToken cancellationToken) =>
+        MeasureLatencyAsync(useDirectRoute: false, cancellationToken);
+
+    public async ValueTask<int?> MeasureLatencyAsync(bool useDirectRoute, CancellationToken cancellationToken)
     {
+        var targetClient = useDirectRoute ? directClient : client;
         try
         {
             // The first request pays for the SOCKS and TCP setup; only a request on an
             // already pooled connection reflects the tunnel round trip.
             if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastSuccessTimestamp)) > WarmConnectionLifetime)
             {
-                await SendLatencyRequestAsync(cancellationToken).ConfigureAwait(false);
+                await SendLatencyRequestAsync(targetClient, cancellationToken).ConfigureAwait(false);
             }
 
             var started = Stopwatch.GetTimestamp();
-            await SendLatencyRequestAsync(cancellationToken).ConfigureAwait(false);
+            await SendLatencyRequestAsync(targetClient, cancellationToken).ConfigureAwait(false);
             var elapsed = Stopwatch.GetElapsedTime(started);
             Interlocked.Exchange(ref lastSuccessTimestamp, Stopwatch.GetTimestamp());
             return (int)Math.Clamp(Math.Round(elapsed.TotalMilliseconds), 1, int.MaxValue);
@@ -173,12 +184,22 @@ public sealed class PaqetTunnelProbe : ITunnelProbe, IDisposable
         }
     }
 
-    private async Task SendLatencyRequestAsync(CancellationToken cancellationToken)
+    private static async Task SendLatencyRequestAsync(HttpClient targetClient, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Head, LatencyUri);
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, LatencyUri);
+            using var response = await targetClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            using var fallbackRequest = new HttpRequestMessage(HttpMethod.Head, FallbackLatencyUri);
+            using var fallbackResponse = await targetClient.SendAsync(fallbackRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            fallbackResponse.EnsureSuccessStatusCode();
+        }
     }
 
     private static bool IsProbeFailure(Exception exception, CancellationToken callerToken) =>

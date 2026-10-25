@@ -148,7 +148,7 @@ public sealed class LiveStatsService(
                 {
                     if (needsLatency)
                     {
-                        var latency = await owner.tunnelProbe.MeasureLatencyAsync(token).ConfigureAwait(false);
+                        var latency = await owner.tunnelProbe.MeasureLatencyAsync(useDirectRoute: isOpenVpnActive, token).ConfigureAwait(false);
                         var measuredAt = owner.clock.GetUtcNow();
                         Volatile.Write(ref latencyMilliseconds, latency ?? -1);
                         Interlocked.Exchange(ref latencyMeasuredAtTicks, measuredAt.UtcTicks);
