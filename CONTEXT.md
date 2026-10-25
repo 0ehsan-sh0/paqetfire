@@ -79,6 +79,10 @@ _Avoid_: Second VPN, nested proxy, openvpn mode
 A validated `.ovpn` configuration file and accompanying credentials imported into a profile, managed by the broker to supervise the local OpenVPN client process.
 _Avoid_: ovpn profile, vpn file, proton config
 
-**Wintun adapter**:
-The dynamic, zero-install virtual network interface (`PaqetFire-VPN`) created on demand by the bundled OpenVPN engine using `wintun.dll`.
-_Avoid_: TAP device, virtual card, VPN adapter
+**Bundled OpenVPN engine**:
+The self-contained, offline OpenVPN 2.7 binaries (`openvpn.exe` and OpenSSL runtime libraries) packaged in the broker's payload directory, eliminating external client dependencies.
+_Avoid_: External OpenVPN, system openvpn
+
+**OpenVPN DCO adapter**:
+The high-performance virtual network interface (`OpenVPN Data Channel Offload`) managed via the signed `ovpn-dco` driver, providing kernel-accelerated packet forwarding for upstream VPN connections.
+_Avoid_: Wintun adapter, TAP device, virtual card, VPN adapter
