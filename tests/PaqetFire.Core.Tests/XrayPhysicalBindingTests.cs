@@ -65,4 +65,34 @@ public sealed class XrayPhysicalBindingTests
         Assert.NotNull(directOutbound);
         Assert.False(directOutbound.Value.TryGetProperty("sendThrough", out _));
     }
+
+    [Fact]
+    public void RoutingRules_WhenOpenVpnActive_RouteForeignTrafficToOpenVpnOutbound()
+    {
+        var policy = new XrayRoutingPolicy(
+            RegionalPreset: RegionalRoutingPreset.IranDirect,
+            DomainStrategy: XrayDomainStrategy.IPIfNonMatch,
+            BypassLan: true,
+            BlockAds: false,
+            BlockQuic: false,
+            DirectBitTorrent: false,
+            PhysicalAdapterIp: "192.168.1.10",
+            IsOpenVpnActive: true);
+
+        var json = new XrayJsonConfigurationWriter().Write(policy);
+        using var doc = JsonDocument.Parse(json);
+        var hasOpenVpnOutbound = false;
+        var outbounds = doc.RootElement.GetProperty("outbounds");
+        foreach (var outbound in outbounds.EnumerateArray())
+        {
+            if (outbound.GetProperty("tag").GetString() == "openvpn-out")
+            {
+                hasOpenVpnOutbound = true;
+                Assert.Equal("freedom", outbound.GetProperty("protocol").GetString());
+                Assert.False(outbound.TryGetProperty("sendThrough", out _));
+            }
+        }
+
+        Assert.True(hasOpenVpnOutbound, "Expected 'openvpn-out' outbound when IsOpenVpnActive is true.");
+    }
 }

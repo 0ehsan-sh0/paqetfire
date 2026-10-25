@@ -222,6 +222,13 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             }
 
             WriteSimpleOutbound(writer, "block", "blackhole");
+            if (policy.IsOpenVpnActive)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("tag", "openvpn-out");
+                writer.WriteString("protocol", "freedom");
+                writer.WriteEndObject();
+            }
             if (dns is not null)
             {
                 // A and AAAA queries are answered by the DNS module. Other types, such as
@@ -250,7 +257,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteStartArray("rules");
             if (dns is not null)
             {
-                WriteDnsRules(writer, dns, userInboundTags);
+                WriteDnsRules(writer, dns, userInboundTags, policy.IsOpenVpnActive);
             }
 
             if (directDomains.Length > 0)
@@ -302,7 +309,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             writer.WriteStartObject();
             writer.WriteString("type", "field");
             writer.WriteString("network", "tcp,udp");
-            writer.WriteString("outboundTag", "paqet");
+            writer.WriteString("outboundTag", policy.IsOpenVpnActive ? "openvpn-out" : "paqet");
             writer.WriteEndObject();
             writer.WriteEndArray();
             writer.WriteEndObject();
@@ -491,7 +498,8 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
     private static void WriteDnsRules(
         Utf8JsonWriter writer,
         XrayDnsPolicy dns,
-        IReadOnlyList<string> userInboundTags)
+        IReadOnlyList<string> userInboundTags,
+        bool isOpenVpnActive = false)
     {
         // Resolver traffic must be pinned before user rules: a custom direct IP or
         // regional rule matching a resolver address would otherwise leak queries.
@@ -500,7 +508,7 @@ public sealed class XrayJsonConfigurationWriter : IXrayConfigurationWriter
             WriteRule(writer, "inboundTag", [DomesticDnsTag], "direct");
         }
 
-        WriteRule(writer, "inboundTag", [RemoteDnsTag], "paqet");
+        WriteRule(writer, "inboundTag", [RemoteDnsTag], isOpenVpnActive ? "openvpn-out" : "paqet");
 
         // Captured lookups (Windows DNS client, LAN and hotspot devices) are answered
         // by Xray instead of reaching their original, typically ISP, resolver.
