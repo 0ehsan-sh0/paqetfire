@@ -41,4 +41,20 @@ socks-proxy 192.168.1.1 9999
         Assert.Contains(@"auth-user-pass ""C:\sec\auth.txt""", generated);
         Assert.Contains("dev PaqetFire-VPN", generated);
     }
+
+    [Fact]
+    public void GenerateRuntimeConfig_InjectsSocksAuthFile_WhenProvided()
+    {
+        var original = "client\ndev tun\nremote 149.88.97.110 443\n";
+        var writer = new OpenVpnConfigurationWriter();
+        var result = writer.GenerateRuntimeConfig(
+            original,
+            1080,
+            @"C:\ProgramData\PaqetFire\openvpn\proton-auth.txt",
+            @"C:\ProgramData\PaqetFire\openvpn\socks-auth.txt",
+            "PaqetFire-VPN");
+
+        Assert.Contains("socks-proxy 127.0.0.1 1080 \"C:\\ProgramData\\PaqetFire\\openvpn\\socks-auth.txt\"", result);
+        Assert.Contains("auth-user-pass \"C:\\ProgramData\\PaqetFire\\openvpn\\proton-auth.txt\"", result);
+    }
 }

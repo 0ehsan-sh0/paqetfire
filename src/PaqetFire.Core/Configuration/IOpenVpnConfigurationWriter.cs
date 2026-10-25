@@ -6,5 +6,6 @@ public interface IOpenVpnConfigurationWriter
         string originalOvpnText,
         int socksProxyPort,
         string authFilePath,
+        string? socksAuthFilePath = null,
         string adapterName = "PaqetFire-VPN");
 }

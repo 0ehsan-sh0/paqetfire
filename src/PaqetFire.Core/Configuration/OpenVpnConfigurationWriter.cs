@@ -19,6 +19,7 @@ public sealed class OpenVpnConfigurationWriter : IOpenVpnConfigurationWriter
         string originalOvpnText,
         int socksProxyPort,
         string authFilePath,
+        string? socksAuthFilePath = null,
         string adapterName = "PaqetFire-VPN")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(originalOvpnText);
@@ -57,7 +58,14 @@ public sealed class OpenVpnConfigurationWriter : IOpenVpnConfigurationWriter
         builder.AppendLine("windows-driver wintun");
         builder.AppendLine("dev-type tun");
         builder.AppendLine($"dev {adapterName}");
-        builder.AppendLine($"socks-proxy 127.0.0.1 {socksProxyPort}");
+        if (string.IsNullOrWhiteSpace(socksAuthFilePath))
+        {
+            builder.AppendLine($"socks-proxy 127.0.0.1 {socksProxyPort}");
+        }
+        else
+        {
+            builder.AppendLine($"socks-proxy 127.0.0.1 {socksProxyPort} \"{socksAuthFilePath}\"");
+        }
         builder.AppendLine($"auth-user-pass \"{authFilePath}\"");
         builder.AppendLine("route-metric 1");
 
