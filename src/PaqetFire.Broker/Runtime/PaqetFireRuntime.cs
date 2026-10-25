@@ -243,7 +243,7 @@ public sealed class PaqetFireRuntime(
             var reconnect = connectAfterSave || current.State == ConnectionState.Connected;
             if (reconnect)
             {
-                EnsurePrerequisitesAvailable();
+                EnsurePrerequisitesAvailable(isOpenVpnActive);
                 progress.Begin(ConnectionStage.Preparing);
             }
 
@@ -617,7 +617,8 @@ public sealed class PaqetFireRuntime(
             string? activationError = null;
             if (reconnect)
             {
-                EnsurePrerequisitesAvailable();
+                var isProfileOpenVpnActive = selected.UpstreamOpenVpn.Enabled && !string.IsNullOrWhiteSpace(selected.UpstreamOpenVpn.OvpnConfigText);
+                EnsurePrerequisitesAvailable(isProfileOpenVpnActive);
                 recovery.Reset();
                 progress.Begin(ConnectionStage.Preparing);
                 EngineConfigurationSet? configuration = null;
@@ -1045,7 +1046,7 @@ public sealed class PaqetFireRuntime(
                 return settings;
             }
 
-            EnsurePrerequisitesAvailable();
+            EnsurePrerequisitesAvailable(isOpenVpnActive);
 
             progress.Advance(ConnectionStage.VerifyingPayload);
             var inspection = await payloadInspector.InspectAsync(cancellationToken).ConfigureAwait(false);
@@ -2081,10 +2082,11 @@ public sealed class PaqetFireRuntime(
         .Select(value => value.Trim().ToUpperInvariant())
         .ToArray();
 
-    private void EnsurePrerequisitesAvailable()
+    private void EnsurePrerequisitesAvailable(bool isOpenVpnActive = false)
     {
         var missing = snapshotMetadata.GetPrerequisites(prerequisiteInspector.Inspect, forceRefresh: true)
-            .Where(item => !item.IsInstalled).ToArray();
+            .Where(item => !item.IsInstalled)
+            .Where(item => item.Id != "ovpn-dco" || isOpenVpnActive).ToArray();
         if (missing.Length > 0)
         {
             throw new MissingPrerequisiteException(missing);

@@ -229,6 +229,12 @@ public sealed partial class MainWindow
             DotNetPrerequisiteDetailText,
             DotNetPrerequisiteButton,
             "Open Microsoft download");
+        UpdatePrerequisiteCard(
+            "ovpn-dco",
+            OpenVpnDcoPrerequisiteStatusText,
+            OpenVpnDcoPrerequisiteDetailText,
+            OpenVpnDcoPrerequisiteButton,
+            "Open driver page");
         if (InstallAllMissingButton is not null)
         {
             InstallAllMissingButton.IsEnabled = !prerequisiteActionInProgress;

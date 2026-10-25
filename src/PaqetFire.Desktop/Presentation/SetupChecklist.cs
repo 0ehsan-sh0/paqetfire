@@ -49,7 +49,8 @@ public sealed record SetupChecklist(IReadOnlyList<SetupChecklistItem> Items, IRe
 
     public static SetupChecklist Create(BrokerSnapshot? snapshot, bool isConnected)
     {
-        var missing = snapshot?.Prerequisites?.Where(item => !item.IsInstalled).ToArray() ?? [];
+        var isOpenVpnActive = snapshot?.Settings?.UpstreamOpenVpn.Enabled == true;
+        var missing = snapshot?.Prerequisites?.Where(item => !item.IsInstalled && (item.Id != "ovpn-dco" || isOpenVpnActive)).ToArray() ?? [];
         var softwareDone = snapshot?.Prerequisites is not null && missing.Length == 0;
         var profileDone = snapshot?.IsConfigured == true;
         var connectDone = isConnected;

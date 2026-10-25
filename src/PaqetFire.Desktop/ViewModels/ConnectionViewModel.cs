@@ -151,6 +151,12 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         private set => SetProperty(ref routingStatusText, value);
     }
 
+    private string openVpnStatusText = "Stopped";
+    public string OpenVpnStatusText
+    {
+        get => openVpnStatusText;
+        private set => SetProperty(ref openVpnStatusText, value);
+    }
     public string XrayStatusText
     {
         get => xrayStatusText;
@@ -1389,6 +1395,13 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         var paqet = snapshot.Engines.FirstOrDefault(engine => engine.Engine == EngineKind.Paqet);
         var xray = snapshot.Engines.FirstOrDefault(engine => engine.Engine == EngineKind.Xray);
         var proxiFyre = snapshot.Engines.FirstOrDefault(engine => engine.Engine == EngineKind.ProxiFyre);
+        var openVpn = snapshot.Engines.FirstOrDefault(engine => engine.Engine == EngineKind.OpenVpn);
+        OpenVpnStatusText = openVpn switch
+        {
+            not null => EngineStateText.GetDisplayName(openVpn.State),
+            _ when snapshot.Settings?.UpstreamOpenVpn.Enabled != true => "Disabled",
+            _ => "Stopped",
+        };
         PaqetStatusText = paqet is null
             ? "Unavailable"
             : EngineStateText.GetDisplayName(paqet.State);

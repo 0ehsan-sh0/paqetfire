@@ -517,7 +517,7 @@
                   <StackPanel x:Name="UpstreamOpenVpnOptionsPanel" Spacing="14" Visibility="Collapsed">
                     <InfoBar x:Name="ProtonVpnHelpBar" IsOpen="True" IsClosable="False" Severity="Informational"
                              Title="Free Proton VPN Setup"
-                             Message="Requires a free Proton account. You can download an OpenVPN configuration file (TCP) and obtain your OpenVPN credentials from your Proton dashboard.">
+                             Message="Requires a free Proton account. In the Proton dashboard, select Windows as the platform and TCP as the protocol when downloading the configuration file (TCP is required; UDP will not work through the intermediate proxy). Enter your OpenVPN / IKEv2 credentials, not your Proton login password.">
                       <InfoBar.ActionButton>
                         <HyperlinkButton Content="Open Proton VPN Setup Guide" Click="OpenProtonVpnGuide_Click" />
                       </InfoBar.ActionButton>
@@ -918,8 +918,8 @@
               </StackPanel>
             </Grid>
 
-            <Grid ColumnSpacing="14" HorizontalAlignment="Stretch">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Grid ColumnSpacing="12" HorizontalAlignment="Stretch">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
               <Border Padding="18" CornerRadius="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                 <StackPanel Spacing="5"><TextBlock Text="Broker service" Opacity="0.65"/><TextBlock Text="{x:Bind ViewModel.BrokerStatusText, Mode=OneWay}" FontSize="19" FontWeight="SemiBold"/></StackPanel>
               </Border>
@@ -931,6 +931,9 @@
               </Border>
               <Border Grid.Column="3" Padding="18" CornerRadius="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                 <StackPanel Spacing="5"><TextBlock Text="ProxiFyre" Opacity="0.65"/><TextBlock Text="{x:Bind ViewModel.RoutingStatusText, Mode=OneWay}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/></StackPanel>
+              </Border>
+              <Border Grid.Column="4" Padding="18" CornerRadius="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="5"><TextBlock Text="OpenVPN" Opacity="0.65"/><TextBlock Text="{x:Bind ViewModel.OpenVpnStatusText, Mode=OneWay}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/></StackPanel>
               </Border>
             </Grid>
 
@@ -988,6 +991,7 @@
                   <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                   </Grid.RowDefinitions>
 
                   <Border Padding="16" CornerRadius="14" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
@@ -1038,6 +1042,18 @@
                       </Grid>
                       <TextBlock x:Name="DotNetPrerequisiteDetailText" Grid.Row="1" Text=".NET Framework 4.7.2 or newer, used by ProxiFyre." FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
                       <Button x:Name="DotNetPrerequisiteButton" Grid.Row="2" Tag="dotnet-framework" Content="Open Microsoft download" HorizontalAlignment="Left"
+                              IsEnabled="False" Click="PrerequisiteActionButton_Click" />
+                    </Grid>
+                  </Border>
+                  <Border Grid.Row="2" Padding="16" CornerRadius="14" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                    <Grid RowSpacing="8">
+                      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                      <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="OpenVPN DCO Driver" FontWeight="SemiBold" />
+                        <TextBlock x:Name="OpenVpnDcoPrerequisiteStatusText" Grid.Column="1" Text="Checking…" Opacity="0.7" />
+                      </Grid>
+                      <TextBlock x:Name="OpenVpnDcoPrerequisiteDetailText" Grid.Row="1" Text="OpenVPN Data Channel Offload kernel driver." FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                      <Button x:Name="OpenVpnDcoPrerequisiteButton" Grid.Row="2" Tag="ovpn-dco" Content="Open driver page" HorizontalAlignment="Left"
                               IsEnabled="False" Click="PrerequisiteActionButton_Click" />
                     </Grid>
                   </Border>
