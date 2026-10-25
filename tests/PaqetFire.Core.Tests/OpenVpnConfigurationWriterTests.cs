@@ -57,4 +57,21 @@ socks-proxy 192.168.1.1 9999
         Assert.Contains("socks-proxy 127.0.0.1 1080 \"C:/ProgramData/PaqetFire/openvpn/socks-auth.txt\"", result);
         Assert.Contains("auth-user-pass \"C:/ProgramData/PaqetFire/openvpn/proton-auth.txt\"", result);
     }
+
+    [Fact]
+    public void GenerateRuntimeConfig_FiltersBlockOutsideDns_AndAppendsPullFilterIgnores()
+    {
+        var original = "client\ndev tun\nproto tcp\nremote 149.88.97.110 443\nblock-outside-dns\n";
+        var writer = new OpenVpnConfigurationWriter();
+        var result = writer.GenerateRuntimeConfig(
+            original,
+            1080,
+            @"C:\ProgramData\PaqetFire\openvpn\proton-auth.txt",
+            null,
+            "PaqetFire-VPN");
+
+        Assert.DoesNotContain("block-outside-dns\n", result);
+        Assert.Contains("pull-filter ignore \"block-outside-dns\"", result);
+        Assert.Contains("pull-filter ignore \"register-dns\"", result);
+    }
 }

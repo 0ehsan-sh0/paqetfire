@@ -12,6 +12,7 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
     private readonly object stateLock = new();
     private readonly List<(DateTimeOffset OccurredAt, string Message, bool IsError)> _logs = new();
     private Process? process;
+    private EventWaitHandle? exitEvent;
     private EngineState state = EngineState.Stopped;
     private string? detail = "OpenVPN is stopped.";
     private DateTimeOffset changedAt = DateTimeOffset.UtcNow;
@@ -100,10 +101,13 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
 
             SetState(EngineState.Starting, "Waiting for OpenVPN tunnel initialization.");
 
+            var eventName = $"PaqetFire_OpenVpn_Exit_{Guid.NewGuid():N}";
+            var createdEvent = new EventWaitHandle(false, EventResetMode.ManualReset, eventName);
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = options.ExecutablePath,
-                Arguments = $"--config \"{options.ConfigurationPath}\"",
+                Arguments = $"--config \"{options.ConfigurationPath}\" --service \"{eventName}\" 0",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -115,6 +119,7 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
             var started = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             if (!started.Start())
             {
+                createdEvent.Dispose();
                 throw new InvalidOperationException("Windows did not start the OpenVPN process.");
             }
 
@@ -131,6 +136,7 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
             lock (stateLock)
             {
                 process = started;
+                exitEvent = createdEvent;
                 expectedExit = false;
             }
 
@@ -197,14 +203,17 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
             }
             catch
             {
+                EventWaitHandle? activeEvent;
                 lock (stateLock)
                 {
                     expectedExit = true;
+                    activeEvent = exitEvent;
+                    exitEvent = null;
                 }
 
                 try
                 {
-                    await TerminateAsync(started).ConfigureAwait(false);
+                    await TerminateAsync(started, activeEvent).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -243,21 +252,25 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
         try
         {
             Process? active;
+            EventWaitHandle? activeEvent;
             lock (stateLock)
             {
                 active = process;
+                activeEvent = exitEvent;
                 expectedExit = true;
                 process = null;
+                exitEvent = null;
             }
 
             if (active is null)
             {
+                activeEvent?.Dispose();
                 SetState(EngineState.Stopped, "OpenVPN is stopped.");
                 return;
             }
 
             SetState(EngineState.Stopping, "Stopping OpenVPN.");
-            await TerminateAsync(active).ConfigureAwait(false);
+            await TerminateAsync(active, activeEvent).ConfigureAwait(false);
             SetState(EngineState.Stopped, "OpenVPN is stopped.");
         }
         finally
@@ -272,11 +285,15 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
         disposed = true;
         lifecycleGate.Dispose();
         Process? active;
+        EventWaitHandle? activeEvent;
         lock (stateLock)
         {
             active = process;
+            activeEvent = exitEvent;
             process = null;
+            exitEvent = null;
         }
+        activeEvent?.Dispose();
         active?.Dispose();
     }
 
@@ -300,6 +317,8 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
                 detail = $"OpenVPN exited unexpectedly with code {exited.ExitCode}.";
             }
             process = null;
+            exitEvent?.Dispose();
+            exitEvent = null;
         }
     }
 
@@ -315,6 +334,8 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
                 detail = sender is Process p ? $"OpenVPN exited unexpectedly with code {p.ExitCode}." : "OpenVPN exited unexpectedly.";
                 changedAt = DateTimeOffset.UtcNow;
             }
+            exitEvent?.Dispose();
+            exitEvent = null;
         }
 
         if (unexpected)
@@ -323,16 +344,40 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
         }
     }
 
-    private static async Task TerminateAsync(Process process)
+    private static async Task TerminateAsync(Process process, EventWaitHandle? exitEvent)
     {
         if (process.HasExited)
         {
+            exitEvent?.Dispose();
             process.Dispose();
             return;
         }
 
         try
         {
+            if (exitEvent is not null)
+            {
+                try
+                {
+                    exitEvent.Set();
+                }
+                catch
+                {
+                    // Ignore if handle closed or invalid
+                }
+
+                using var gracefulCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                try
+                {
+                    await process.WaitForExitAsync(gracefulCts.Token).ConfigureAwait(false);
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Graceful exit timed out; fall through to force kill
+                }
+            }
+
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(ForceKillTimeout).ConfigureAwait(false);
         }
@@ -342,6 +387,7 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
         }
         finally
         {
+            exitEvent?.Dispose();
             process.Dispose();
         }
     }

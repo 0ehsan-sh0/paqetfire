@@ -13,6 +13,7 @@ public sealed class OpenVpnConfigurationWriter : IOpenVpnConfigurationWriter
         "dev ",
         "dev\t",
         "dev-type",
+        "block-outside-dns",
     ];
 
     public string GenerateRuntimeConfig(
@@ -69,6 +70,8 @@ public sealed class OpenVpnConfigurationWriter : IOpenVpnConfigurationWriter
         }
         builder.AppendLine($"auth-user-pass \"{normalizedProtonAuth}\"");
         builder.AppendLine("route-metric 1");
+        builder.AppendLine("pull-filter ignore \"block-outside-dns\"");
+        builder.AppendLine("pull-filter ignore \"register-dns\"");
 
         return builder.ToString();
     }
