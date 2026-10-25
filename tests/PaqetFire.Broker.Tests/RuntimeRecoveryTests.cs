@@ -456,6 +456,7 @@ internal sealed class ScriptedController : IConnectionController
 
     public EngineState ProxiFyre { get; set; } = EngineState.Stopped;
     public bool IsOpenVpnEnabled { get; set; }
+    public EngineState OpenVpn { get; set; } = EngineState.Stopped;
 
 
     public bool FailRestart { get; set; }
@@ -478,7 +479,8 @@ internal sealed class ScriptedController : IConnectionController
             state,
             new EngineStatus(EngineKind.Paqet, Paqet),
             new EngineStatus(EngineKind.Xray, Xray),
-            new EngineStatus(EngineKind.ProxiFyre, ProxiFyre)));
+            new EngineStatus(EngineKind.ProxiFyre, ProxiFyre),
+            OpenVpn: IsOpenVpnEnabled ? new EngineStatus(EngineKind.OpenVpn, OpenVpn) : null));
     }
 
     public ValueTask ConnectAsync(CancellationToken cancellationToken) => ConnectAsync(null, cancellationToken);
@@ -511,6 +513,10 @@ internal sealed class ScriptedController : IConnectionController
         stageStarted?.Invoke(ConnectionStage.StartingPolicy);
         stageStarted?.Invoke(ConnectionStage.StartingCapture);
         Paqet = Xray = ProxiFyre = EngineState.Running;
+        if (IsOpenVpnEnabled)
+        {
+            OpenVpn = EngineState.Running;
+        }
     }
 
     public bool FailConnect { get; set; }

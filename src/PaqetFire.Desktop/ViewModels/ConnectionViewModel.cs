@@ -1368,7 +1368,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
 
         var runningCount = snapshot.Engines.Count(engine => engine.State == EngineState.Running);
-        var fullyRouted = snapshot.IsRouting && runningCount == snapshot.Engines.Count;
+        var fullyRouted = snapshot.IsRouting && (snapshot.ConnectionState == CoreConnectionState.Connected || runningCount == snapshot.Engines.Count);
         if (errorKind == ErrorKind.Operation && fullyRouted && snapshot.Progress is null &&
             snapshot.Tunnel?.State is not (TunnelHealthState.Stalled or TunnelHealthState.Recovering))
         {
@@ -1583,7 +1583,7 @@ public sealed class ConnectionViewModel : INotifyPropertyChanged, IAsyncDisposab
                 ? $"No traffic has passed through Paqet since {lastSuccess.ToLocalTime():HH:mm:ss}. PaqetFire restarts the transport automatically; routed traffic stays on the route meanwhile."
                 : "Paqet is running but its server has not answered yet. PaqetFire restarts the transport automatically; routed traffic stays on the route meanwhile.";
         }
-        else if (snapshot.IsRouting && runningCount == snapshot.Engines.Count)
+        else if (snapshot.IsRouting && (snapshot.ConnectionState == CoreConnectionState.Connected || runningCount == snapshot.Engines.Count))
         {
             ConnectionState = BrokerConnectionState.Connected;
             StateLabel = snapshot.IsKillSwitchEnabled ? "ROUTING ACTIVE · KILL SWITCH ON" : "ROUTING ACTIVE";

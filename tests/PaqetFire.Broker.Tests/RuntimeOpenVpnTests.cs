@@ -1,4 +1,6 @@
 using PaqetFire.Core.Configuration;
+using PaqetFire.Core.Connections;
+using PaqetFire.Core.Engines;
 using Xunit;
 
 namespace PaqetFire.Broker.Tests;
@@ -20,7 +22,7 @@ public sealed class RuntimeOpenVpnTests
             }
         });
 
-        await fixture.Runtime.ConnectAsync(CancellationToken.None);
+        var snapshot = await fixture.Runtime.ConnectAsync(CancellationToken.None);
 
         Assert.True(fixture.Controller.IsOpenVpnEnabled);
         Assert.NotNull(fixture.Xray.Last);
@@ -28,10 +30,15 @@ public sealed class RuntimeOpenVpnTests
         Assert.True(File.Exists(fixture.Paths.ResolvedOpenVpnConfigPath));
         Assert.True(File.Exists(fixture.Paths.ResolvedOpenVpnAuthPath));
         Assert.True(File.Exists(fixture.Paths.ResolvedOpenVpnSocksAuthPath));
+        Assert.Contains(snapshot.Engines, e => e.Engine == EngineKind.OpenVpn);
+        Assert.Equal(4, snapshot.Engines.Count);
 
         var runtimeOvpn = await File.ReadAllTextAsync(fixture.Paths.ResolvedOpenVpnConfigPath);
         Assert.Contains("socks-proxy 127.0.0.1 1080", runtimeOvpn);
         Assert.Contains("auth-user-pass", runtimeOvpn);
+        Assert.DoesNotContain("windows-driver", runtimeOvpn);
+        Assert.Contains("dev tun", runtimeOvpn);
+        Assert.DoesNotContain(@"\", runtimeOvpn.Substring(runtimeOvpn.IndexOf("socks-proxy")));
 
         var protonAuth = await File.ReadAllTextAsync(fixture.Paths.ResolvedOpenVpnAuthPath);
         Assert.Contains("proton_test_user", protonAuth);
@@ -50,10 +57,13 @@ public sealed class RuntimeOpenVpnTests
             }
         });
 
-        await fixture.Runtime.ConnectAsync(CancellationToken.None);
+        var snapshot = await fixture.Runtime.ConnectAsync(CancellationToken.None);
 
         Assert.False(fixture.Controller.IsOpenVpnEnabled);
         Assert.NotNull(fixture.Xray.Last);
         Assert.False(fixture.Xray.Last.IsOpenVpnActive);
+        Assert.Equal(ConnectionState.Connected, snapshot.ConnectionState);
+        Assert.Equal(3, snapshot.Engines.Count);
+        Assert.DoesNotContain(snapshot.Engines, e => e.Engine == EngineKind.OpenVpn);
     }
 }

@@ -6,17 +6,17 @@ namespace PaqetFire.Core.Tests;
 public sealed class OpenVpnConfigurationWriterTests
 {
     [Fact]
-    public void GenerateRuntimeConfig_InjectsSocksProxyAndWintunAdapter()
+    public void GenerateRuntimeConfig_InjectsSocksProxyAndTunAdapter()
     {
         var writer = new OpenVpnConfigurationWriter();
         var original = "client\ndev tun\nproto tcp\nremote 149.88.97.110 443\n";
         var generated = writer.GenerateRuntimeConfig(original, 1080, @"C:\data\auth.txt", "PaqetFire-VPN");
 
         Assert.Contains("socks-proxy 127.0.0.1 1080", generated);
-        Assert.Contains("windows-driver wintun", generated);
+        Assert.DoesNotContain("windows-driver", generated);
         Assert.Contains("dev-type tun", generated);
-        Assert.Contains("dev PaqetFire-VPN", generated);
-        Assert.Contains(@"auth-user-pass ""C:\data\auth.txt""", generated);
+        Assert.Contains("dev tun", generated);
+        Assert.Contains(@"auth-user-pass ""C:/data/auth.txt""", generated);
     }
 
     [Fact]
@@ -38,8 +38,8 @@ socks-proxy 192.168.1.1 9999
         Assert.DoesNotContain("custom_tap", generated);
         Assert.DoesNotContain("192.168.1.1 9999", generated);
         Assert.Contains("socks-proxy 127.0.0.1 1081", generated);
-        Assert.Contains(@"auth-user-pass ""C:\sec\auth.txt""", generated);
-        Assert.Contains("dev PaqetFire-VPN", generated);
+        Assert.Contains(@"auth-user-pass ""C:/sec/auth.txt""", generated);
+        Assert.Contains("dev tun", generated);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ socks-proxy 192.168.1.1 9999
             @"C:\ProgramData\PaqetFire\openvpn\socks-auth.txt",
             "PaqetFire-VPN");
 
-        Assert.Contains("socks-proxy 127.0.0.1 1080 \"C:\\ProgramData\\PaqetFire\\openvpn\\socks-auth.txt\"", result);
-        Assert.Contains("auth-user-pass \"C:\\ProgramData\\PaqetFire\\openvpn\\proton-auth.txt\"", result);
+        Assert.Contains("socks-proxy 127.0.0.1 1080 \"C:/ProgramData/PaqetFire/openvpn/socks-auth.txt\"", result);
+        Assert.Contains("auth-user-pass \"C:/ProgramData/PaqetFire/openvpn/proton-auth.txt\"", result);
     }
 }

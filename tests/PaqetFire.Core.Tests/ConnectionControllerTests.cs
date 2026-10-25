@@ -156,6 +156,7 @@ public sealed class ConnectionControllerTests
         var proxiFyre = new FakeEngineAdapter(EngineKind.ProxiFyre, stopOrder) { Events = events };
 
         using var controller = new ConnectionController(paqet, xray, proxiFyre, openVpn);
+        controller.IsOpenVpnEnabled = true;
         await controller.ConnectAsync(CancellationToken.None);
 
         var status = await controller.GetStatusAsync(CancellationToken.None);

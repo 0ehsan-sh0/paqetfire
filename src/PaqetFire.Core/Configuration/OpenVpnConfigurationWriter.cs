@@ -55,18 +55,19 @@ public sealed class OpenVpnConfigurationWriter : IOpenVpnConfigurationWriter
 
         builder.AppendLine();
         builder.AppendLine("# === PaqetFire Upstream OpenVPN Runtime Directives ===");
-        builder.AppendLine("windows-driver wintun");
         builder.AppendLine("dev-type tun");
-        builder.AppendLine($"dev {adapterName}");
-        if (string.IsNullOrWhiteSpace(socksAuthFilePath))
+        builder.AppendLine("dev tun");
+        var normalizedSocksAuth = socksAuthFilePath?.Replace('\\', '/');
+        var normalizedProtonAuth = authFilePath.Replace('\\', '/');
+        if (string.IsNullOrWhiteSpace(normalizedSocksAuth))
         {
             builder.AppendLine($"socks-proxy 127.0.0.1 {socksProxyPort}");
         }
         else
         {
-            builder.AppendLine($"socks-proxy 127.0.0.1 {socksProxyPort} \"{socksAuthFilePath}\"");
+            builder.AppendLine($"socks-proxy 127.0.0.1 {socksProxyPort} \"{normalizedSocksAuth}\"");
         }
-        builder.AppendLine($"auth-user-pass \"{authFilePath}\"");
+        builder.AppendLine($"auth-user-pass \"{normalizedProtonAuth}\"");
         builder.AppendLine("route-metric 1");
 
         return builder.ToString();

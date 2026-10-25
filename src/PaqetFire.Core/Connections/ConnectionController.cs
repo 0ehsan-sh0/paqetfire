@@ -53,7 +53,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         _xray = xray;
         _proxiFyre = proxiFyre;
         _openVpn = openVpn;
-        IsOpenVpnEnabled = openVpn is not null;
+        IsOpenVpnEnabled = false;
     }
 
     // Deliberately does not take the transition gate so the desktop can observe a long
@@ -66,7 +66,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         var paqetStatus = await _paqet.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var xrayStatus = await _xray.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var proxiFyreStatus = await _proxiFyre.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        var openVpnStatus = _openVpn is not null
+        var openVpnStatus = _openVpn is not null && IsOpenVpnEnabled
             ? await _openVpn.GetStatusAsync(cancellationToken).ConfigureAwait(false)
             : null;
         var derivedState = DeriveState(paqetStatus.State, xrayStatus.State, proxiFyreStatus.State, openVpnStatus?.State);

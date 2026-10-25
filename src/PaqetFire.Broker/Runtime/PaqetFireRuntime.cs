@@ -115,6 +115,12 @@ public sealed class PaqetFireRuntime(
             await SaveLegacySettingsMirrorAsync(settings, cancellationToken).ConfigureAwait(false);
         }
         await snapshotMetadata.UpdateSettingsAsync(settings).ConfigureAwait(false);
+        if (settings is not null)
+        {
+            var isOpenVpnActive = settings.UpstreamOpenVpn.Enabled &&
+                                  !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText);
+            connectionController.IsOpenVpnEnabled = isOpenVpnActive;
+        }
 
         if (desiredConnected &&
             (settings is null || profileCatalog?.ActiveProfileId != brokerState.DesiredProfileId ||
@@ -1922,8 +1928,10 @@ public sealed class PaqetFireRuntime(
             .OrderBy(entry => entry.OccurredAt)
             .Select(entry => entry.Text));
 
+        var isOpenVpnActive = settings?.UpstreamOpenVpn.Enabled == true &&
+                              !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText);
         List<EngineStatus> engines = [status.Paqet, status.Xray, status.ProxiFyre];
-        if (status.OpenVpn is not null)
+        if (isOpenVpnActive && status.OpenVpn is not null)
         {
             engines.Add(status.OpenVpn);
         }
