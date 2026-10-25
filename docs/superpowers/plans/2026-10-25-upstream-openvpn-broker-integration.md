@@ -1,6 +1,6 @@
 # Upstream OpenVPN Broker Integration & Multi-hop Routing Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Connect PaqetFire's Upstream OpenVPN engine into the background Broker runtime and Xray configuration so that enabling "Upstream OpenVPN" routes all foreign traffic through Proton VPN over Paqet transport while keeping domestic Iranian traffic direct.
 
@@ -54,7 +54,7 @@
   }
   ```
 
-- [ ] **Step 1: Write failing unit test for `OpenVpnLocator`**
+- [x] **Step 1: Write failing unit test for `OpenVpnLocator`**
 
 ```csharp
 namespace PaqetFire.Broker.Tests;
@@ -110,12 +110,12 @@ public sealed class OpenVpnLocatorTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj --filter "FullyQualifiedName~OpenVpnLocatorTests"`
 Expected: FAIL (type `OpenVpnLocator` does not exist).
 
-- [ ] **Step 3: Implement `OpenVpnLocator`**
+- [x] **Step 3: Implement `OpenVpnLocator`**
 
 Create `src/PaqetFire.Broker/Engines/OpenVpnLocator.cs`:
 ```csharp
@@ -168,12 +168,12 @@ public static class OpenVpnLocator
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj --filter "FullyQualifiedName~OpenVpnLocatorTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Broker/Engines/OpenVpnLocator.cs tests/PaqetFire.Broker.Tests/OpenVpnLocatorTests.cs
@@ -193,7 +193,7 @@ git commit -m "feat(broker): implement OpenVpnLocator discovery helper"
 - Consumes: SOCKS port, SOCKS auth path, Proton auth path.
 - Produces: Complete OpenVPN runtime config containing `socks-proxy 127.0.0.1 <port> "<socksAuthPath>"` and `auth-user-pass "<protonAuthPath>"`.
 
-- [ ] **Step 1: Write failing unit test in `OpenVpnConfigurationWriterTests`**
+- [x] **Step 1: Write failing unit test in `OpenVpnConfigurationWriterTests`**
 
 Update `tests/PaqetFire.Core.Tests/OpenVpnConfigurationWriterTests.cs` to test SOCKS auth parameter:
 
@@ -215,12 +215,12 @@ Update `tests/PaqetFire.Core.Tests/OpenVpnConfigurationWriterTests.cs` to test S
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~GenerateRuntimeConfig_InjectsSocksAuthFile"`
 Expected: FAIL (method signature overload does not match).
 
-- [ ] **Step 3: Update `IOpenVpnConfigurationWriter` and `OpenVpnConfigurationWriter`**
+- [x] **Step 3: Update `IOpenVpnConfigurationWriter` and `OpenVpnConfigurationWriter`**
 
 In `src/PaqetFire.Core/Configuration/IOpenVpnConfigurationWriter.cs`:
 ```csharp
@@ -297,12 +297,12 @@ Update `GenerateRuntimeConfig`:
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~OpenVpnConfigurationWriterTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Configuration/IOpenVpnConfigurationWriter.cs src/PaqetFire.Core/Configuration/OpenVpnConfigurationWriter.cs tests/PaqetFire.Core.Tests/OpenVpnConfigurationWriterTests.cs
@@ -324,7 +324,7 @@ git commit -m "feat(core): support SOCKS proxy credentials file in OpenVpnConfig
   - If `IsOpenVpnActive == false`: foreign rules target `paqet` outbound (port 1080).
   - If `IsOpenVpnActive == true`: foreign rules target `openvpn-out` (freedom outbound without `sendThrough`), while Iran rules continue targeting `direct` (with `sendThrough: PhysicalAdapterIp`).
 
-- [ ] **Step 1: Write failing unit test in `XrayPhysicalBindingTests`**
+- [x] **Step 1: Write failing unit test in `XrayPhysicalBindingTests`**
 
 ```csharp
     [Fact]
@@ -361,12 +361,12 @@ git commit -m "feat(core): support SOCKS proxy credentials file in OpenVpnConfig
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~RoutingRules_WhenOpenVpnActive"`
 Expected: FAIL (`IsOpenVpnActive` does not exist on `XrayRoutingPolicy`).
 
-- [ ] **Step 3: Update `XrayRoutingPolicy` and `XrayJsonConfigurationWriter`**
+- [x] **Step 3: Update `XrayRoutingPolicy` and `XrayJsonConfigurationWriter`**
 
 In `src/PaqetFire.Core/Configuration/PaqetFireSettings.cs`:
 Add `bool IsOpenVpnActive = false` to `XrayRoutingPolicy`:
@@ -405,12 +405,12 @@ In `src/PaqetFire.Core/Configuration/XrayJsonConfigurationWriter.cs`:
 ```
 Replace the standard `paqet` foreign rule destinations with `defaultForeignOutbound`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Core.Tests/PaqetFire.Core.Tests.csproj --filter "FullyQualifiedName~RoutingRules_WhenOpenVpnActive"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Core/Configuration/PaqetFireSettings.cs src/PaqetFire.Core/Configuration/XrayJsonConfigurationWriter.cs tests/PaqetFire.Core.Tests/XrayPhysicalBindingTests.cs
@@ -432,16 +432,16 @@ git commit -m "feat(xray): support openvpn-out outbound when Upstream OpenVPN is
   - Configures `ConnectionController` with the dynamic `OpenVpnProcessAdapter`.
   - Automatically activates 4-engine sequencing when `settings.UpstreamOpenVpn.Enabled` is true.
 
-- [ ] **Step 1: Write integration test in `tests/PaqetFire.Broker.Tests/RuntimeRecoveryTests.cs`**
+- [x] **Step 1: Write integration test in `tests/PaqetFire.Broker.Tests/RuntimeRecoveryTests.cs`**
 
 Write a test verifying that when `settings.UpstreamOpenVpn.Enabled == true` and OpenVPN executable is present, `BuildEngineConfigurationsAsync` passes `IsOpenVpnActive: true` and generates OpenVPN config.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj --filter "FullyQualifiedName~UpstreamOpenVpn"`
 Expected: FAIL.
 
-- [ ] **Step 3: Update `Program.cs` and `PaqetFireRuntime.cs`**
+- [x] **Step 3: Update `Program.cs` and `PaqetFireRuntime.cs`**
 
 In `src/PaqetFire.Broker/Program.cs`:
 1. Register `IOpenVpnConfigurationWriter`:
@@ -479,12 +479,12 @@ In `src/PaqetFire.Broker/Runtime/PaqetFireRuntime.cs`:
    - Call `openVpnWriter.GenerateRuntimeConfig` and write `runtime.ovpn`.
 3. In `CreateProxiFyreConfiguration`: Ensure `openvpn.exe` is added to ProxiFyre's exclusions so the OpenVPN process itself is never captured by ProxiFyre.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/PaqetFire.Broker.Tests/PaqetFire.Broker.Tests.csproj`
 Expected: PASS.
 
-- [ ] **Step 5: Commit changes**
+- [x] **Step 5: Commit changes**
 
 ```bash
 git add src/PaqetFire.Broker/Program.cs src/PaqetFire.Broker/Runtime/PaqetFireRuntime.cs
@@ -502,14 +502,14 @@ git commit -m "feat(broker): wire OpenVpnProcessAdapter and runtime configuratio
 **Interfaces:**
 - Produces: Installed and verified `PaqetFire-0.6.32-x64.msi` with working 4-engine Upstream OpenVPN capability.
 
-- [ ] **Step 1: Run full test suite across the solution**
+- [x] **Step 1: Run full test suite across the solution**
 
 Run: `dotnet test PaqetFire.slnx`
 Expected: All tests PASS with 0 errors.
 
-- [ ] **Step 2: Bump version in `PaqetFire.Version.props` to `0.6.32`**
+- [x] **Step 2: Bump version in `PaqetFire.Version.props` to `0.6.32`**
 
-- [ ] **Step 3: Publish Desktop and Broker, and build WiX MSI installer**
+- [x] **Step 3: Publish Desktop and Broker, and build WiX MSI installer**
 
 ```powershell
 dotnet publish src/PaqetFire.Desktop/PaqetFire.Desktop.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true -o artifacts/publish/win-x64/desktop -p:DebugType=None -p:DebugSymbols=false
@@ -517,7 +517,7 @@ dotnet publish src/PaqetFire.Broker/PaqetFire.Broker.csproj -c Release -r win-x6
 dotnet build installer/PaqetFire.Installer/PaqetFire.Installer.wixproj -c Release
 ```
 
-- [ ] **Step 4: Commit and tag release**
+- [x] **Step 4: Commit and tag release**
 
 ```bash
 git commit -am "chore: release v0.6.32 with native Upstream OpenVPN multi-hop routing"
