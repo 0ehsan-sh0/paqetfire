@@ -82,6 +82,17 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
                 throw new FileNotFoundException("OpenVPN executable does not exist.", options.ExecutablePath);
             }
 
+            if (!string.IsNullOrEmpty(options.ExpectedExecutableSha256))
+            {
+                using var stream = File.OpenRead(options.ExecutablePath);
+                var actualHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
+                if (!string.Equals(actualHash, options.ExpectedExecutableSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new System.Security.Cryptography.CryptographicException(
+                        $"OpenVPN executable digest mismatch. Expected {options.ExpectedExecutableSha256}, observed {actualHash}.");
+                }
+            }
+
             if (!File.Exists(options.ConfigurationPath))
             {
                 throw new FileNotFoundException("OpenVPN configuration does not exist.", options.ConfigurationPath);

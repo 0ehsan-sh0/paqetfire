@@ -88,6 +88,48 @@
           "sha256": "bd70a5832124e36840452ff46e442efa0a09a4ceba842aea72c79b2d322d7fe8"
         }
       ]
+    },
+    {
+      "engine": "OpenVpn",
+      "version": "2.7.8",
+      "entryPoint": "engines/openvpn/x64/openvpn.exe",
+      "files": [
+        {
+          "path": "engines/openvpn/x64/openvpn.exe",
+          "size": 1077680,
+          "sha256": "02d1f147e58de4e12735d9d4614a40d69a87a4874928b962aa235264fa364ea1"
+        },
+        {
+          "path": "engines/openvpn/x64/libcrypto-3-x64.dll",
+          "size": 5290504,
+          "sha256": "1bbececb5ccb120a2003d105ace388fec5ffa174dd8268ba51a6d4f29d41a94f"
+        },
+        {
+          "path": "engines/openvpn/x64/libssl-3-x64.dll",
+          "size": 923656,
+          "sha256": "434801bbecc42f2b861c9da535baacb8d8720d3f463f92129a1667edda8aad9c"
+        },
+        {
+          "path": "engines/openvpn/x64/libpkcs11-helper-1.dll",
+          "size": 112048,
+          "sha256": "6636876cf2682a45b411d516bf592f40c3c811fe1f415fbe17ef363da6a63e35"
+        },
+        {
+          "path": "engines/openvpn/x64/driver/ovpn-dco.inf",
+          "size": 3066,
+          "sha256": "bcfe1a0c6584306ed072dfbee51cbf838ec53fc71bd580b249b3bfdaa5176742"
+        },
+        {
+          "path": "engines/openvpn/x64/driver/ovpn-dco.cat",
+          "size": 11855,
+          "sha256": "85351773de9e3af57650b44c0911354613613cad569b3381d429218a1e2bf2e8"
+        },
+        {
+          "path": "engines/openvpn/x64/driver/ovpn-dco.sys",
+          "size": 168160,
+          "sha256": "80b2b2962dd421e566cacddf3e003455a6aa50764dec76479092b92570330a1b"
+        }
+      ]
     }
   ],
   "prerequisites": [

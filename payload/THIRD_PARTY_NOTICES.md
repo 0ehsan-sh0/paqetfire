@@ -29,6 +29,16 @@ PaqetFire uses Xray only as a local routing-policy engine. The bundled
 `geoip.dat` and `geosite.dat` files are the unmodified files from the official
 Xray Windows release.
 
+## OpenVPN 2.7.8 & ovpn-dco 2.8.14
+
+- Project: https://github.com/OpenVPN/openvpn
+- Exact source: https://github.com/OpenVPN/openvpn/tree/v2.7.8
+- DCO Driver Project: https://github.com/OpenVPN/ovpn-dco-win
+- License: GNU General Public License v2.0 (see `payload/licenses/OpenVPN-GPL-2.0.txt`)
+
+PaqetFire distributes OpenVPN 2.7.8 and the WHQL-signed OpenVPN Data Channel Offload
+(`ovpn-dco`) kernel driver as unmodified binaries under the GPL-2.0 license.
+
 ## Downloaded routing data
 
 When updated routing data is enabled, the broker downloads `geoip.dat` and
@@ -46,3 +56,6 @@ OEM payload.
 
 ProxiFyre requires Windows Packet Filter. Its project and signed installers are
 available from https://github.com/wiresock/ndisapi.
+
+OpenVPN utilizes the OpenVPN Data Channel Offload (`ovpn-dco`) kernel driver
+bundled directly in the engine payload.

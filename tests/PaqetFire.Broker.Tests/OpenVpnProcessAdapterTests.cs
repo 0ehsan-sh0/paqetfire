@@ -48,4 +48,32 @@ public sealed class OpenVpnProcessAdapterTests
             await adapter.StartAsync(CancellationToken.None);
         });
     }
+
+    [Fact]
+    public async Task StartAsync_WhenExecutableDigestMismatches_ThrowsCryptographicException()
+    {
+        var tempExe = Path.GetTempFileName();
+        var tempConfig = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempExe, "fake binary");
+            var options = new OpenVpnProcessOptions
+            {
+                ExecutablePath = tempExe,
+                ConfigurationPath = tempConfig,
+                ExpectedExecutableSha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+            };
+            using var adapter = new OpenVpnProcessAdapter(options);
+
+            await Assert.ThrowsAsync<System.Security.Cryptography.CryptographicException>(async () =>
+            {
+                await adapter.StartAsync(CancellationToken.None);
+            });
+        }
+        finally
+        {
+            File.Delete(tempExe);
+            File.Delete(tempConfig);
+        }
+    }
 }

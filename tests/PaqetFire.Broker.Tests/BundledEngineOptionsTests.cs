@@ -12,18 +12,21 @@ public sealed class BundledEngineOptionsTests
     [InlineData(EngineKind.Paqet)]
     [InlineData(EngineKind.Xray)]
     [InlineData(EngineKind.ProxiFyre)]
+    [InlineData(EngineKind.OpenVpn)]
     public void ProductionStartupPinsMatchReleaseManifest(EngineKind kind)
     {
         var manifest = ProductPayloadManifest.Load(Path.Combine(AppContext.BaseDirectory, "release-payload-manifest.json"));
         var engine = Assert.Single(manifest.Engines, item => item.Engine == kind);
         var entryPoint = Assert.Single(engine.Files, file => file.Path == engine.EntryPoint);
         var paths = new RuntimePaths("payload", "paqet.exe", "paqet.yaml", "xray.exe", "xray.json",
-            "geoip.dat", "geosite.dat", "ProxiFyre.exe", "app-config.json", "settings.json");
+            "geoip.dat", "geosite.dat", "ProxiFyre.exe", "app-config.json", "settings.json",
+            OpenVpnExecutablePath: "openvpn.exe");
         (string? version, string? digest) = kind switch
         {
             EngineKind.Paqet => Pin(BundledEngineOptions.CreatePaqet(paths)),
             EngineKind.Xray => Pin(BundledEngineOptions.CreateXray(paths)),
             EngineKind.ProxiFyre => Pin(BundledEngineOptions.CreateProxiFyre(paths)),
+            EngineKind.OpenVpn => Pin(BundledEngineOptions.CreateOpenVpn("openvpn.exe", "runtime.ovpn")),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         Assert.Equal(engine.Version, version);
@@ -33,4 +36,5 @@ public sealed class BundledEngineOptionsTests
     private static (string?, string?) Pin(PaqetProcessOptions options) => (options.Version, options.ExpectedExecutableSha256);
     private static (string?, string?) Pin(XrayProcessOptions options) => (options.Version, options.ExpectedExecutableSha256);
     private static (string?, string?) Pin(ProxiFyreProcessOptions options) => (options.Version, options.ExpectedExecutableSha256);
+    private static (string?, string?) Pin(OpenVpnProcessOptions options) => (options.Version, options.ExpectedExecutableSha256);
 }

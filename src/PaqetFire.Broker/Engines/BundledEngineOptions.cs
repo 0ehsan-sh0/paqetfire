@@ -8,6 +8,7 @@ internal static class BundledEngineOptions
 {
     public const string XrayVersion = "26.3.27";
     public const string OpenVpnVersion = "2.7.8";
+    public const string OpenVpnSha256 = "02d1f147e58de4e12735d9d4614a40d69a87a4874928b962aa235264fa364ea1";
 
     public static PaqetProcessOptions CreatePaqet(RuntimePaths paths) => new()
     {
@@ -51,6 +52,7 @@ internal static class BundledEngineOptions
         ConfigurationPath = configPath,
         AuthFilePath = authPath,
         Version = OpenVpnVersion,
+        ExpectedExecutableSha256 = OpenVpnSha256,
         ReadinessTimeout = TimeSpan.FromSeconds(30),
     };
 }
