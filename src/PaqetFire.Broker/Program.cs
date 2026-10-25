@@ -88,6 +88,7 @@ builder.Services.AddSingleton<ILiveStatsService, LiveStatsService>();
 builder.Services.AddSingleton<IPaqetConfigurationWriter, PaqetYamlConfigurationWriter>();
 builder.Services.AddSingleton<IXrayConfigurationWriter, XrayJsonConfigurationWriter>();
 builder.Services.AddSingleton<IProxiFyreConfigurationWriter, ProxiFyreJsonConfigurationWriter>();
+builder.Services.AddSingleton<IOpenVpnConfigurationWriter, OpenVpnConfigurationWriter>();
 builder.Services.AddSingleton<IMachineSettingsStore>(services =>
     new MachineSettingsStore(paths.MachineSettingsPath, services.GetRequiredService<ProtectedDirectory>()));
 builder.Services.AddSingleton<IProfileSecretProtector, DpapiProfileSecretProtector>();
@@ -134,10 +135,24 @@ builder.Services.AddSingleton(services =>
     adapter.UnexpectedExit += (_, _) => services.GetRequiredService<BrokerSignal>().Notify();
     return adapter;
 });
+var openVpnConfigPath = Path.Combine(dataDirectory, "openvpn", "runtime.ovpn");
+var openVpnAuthPath = Path.Combine(dataDirectory, "openvpn", "proton-auth.txt");
+var openVpnExe = OpenVpnLocator.FindExecutable(paths.PayloadRoot);
+builder.Services.AddSingleton(services =>
+{
+    var options = BundledEngineOptions.CreateOpenVpn(
+        openVpnExe ?? @"C:\Program Files\OpenVPN\bin\openvpn.exe",
+        openVpnConfigPath,
+        openVpnAuthPath);
+    var adapter = new OpenVpnProcessAdapter(options);
+    adapter.UnexpectedExit += (_, _) => services.GetRequiredService<BrokerSignal>().Notify();
+    return adapter;
+});
 builder.Services.AddSingleton<IConnectionController>(services => new ConnectionController(
     services.GetRequiredService<PaqetProcessAdapter>(),
     services.GetRequiredService<XrayProcessAdapter>(),
-    services.GetRequiredService<ProxiFyreProcessAdapter>()));
+    services.GetRequiredService<ProxiFyreProcessAdapter>(),
+    services.GetRequiredService<OpenVpnProcessAdapter>()));
 builder.Services.AddSingleton<IRoutingDataSource, GitHubRoutingDataSource>();
 builder.Services.AddSingleton<IRoutingDataValidator, XrayRoutingDataValidator>();
 builder.Services.AddSingleton(services =>

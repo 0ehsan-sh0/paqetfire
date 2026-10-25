@@ -47,7 +47,9 @@ public sealed class PaqetFireRuntime(
     ConnectionProgressTracker? progress = null,
     IIpv6CapabilityProbe? ipv6Probe = null,
     TimeProvider? timeProvider = null,
-    RoutingDataService? routingData = null) : IPaqetFireRuntime
+    RoutingDataService? routingData = null,
+    OpenVpnProcessAdapter? openVpnAdapter = null,
+    IOpenVpnConfigurationWriter? openVpnWriter = null) : IPaqetFireRuntime
 {
     private const int RecentLogBudgetBytes = 24 * 1024;
     private static readonly TimeSpan SystemResolverTimeout = TimeSpan.FromMilliseconds(1500);
@@ -214,6 +216,10 @@ public sealed class PaqetFireRuntime(
             {
                 throw new ConfigurationValidationException(errors);
             }
+
+            var isOpenVpnActive = settings.UpstreamOpenVpn.Enabled &&
+                                  !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText);
+            connectionController.IsOpenVpnEnabled = isOpenVpnActive;
 
             var current = await connectionController.GetStatusAsync(token)
                 .ConfigureAwait(false);
@@ -932,10 +938,15 @@ public sealed class PaqetFireRuntime(
                 network = new DiagnosticNetwork(string.Empty, string.Empty, false, [], exception.Message);
             }
 
+            var openVpnLogs = openVpnAdapter?.GetRecentLogs()
+                .Select(entry => (entry.OccurredAt, Text: $"{entry.OccurredAt:HH:mm:ss}  {(entry.IsError ? "ERR" : "INF")}  OpenVPN · {entry.Message}"))
+                ?? Enumerable.Empty<(DateTimeOffset OccurredAt, string Text)>();
+
             var logs = paqetAdapter.GetRecentLogs()
                 .Select(entry => (entry.OccurredAt, Text: $"{entry.OccurredAt:HH:mm:ss}  {(entry.IsError ? "ERR" : "INF")}  Paqet · {entry.Message}"))
                 .Concat(xrayAdapter.GetRecentLogs()
                     .Select(entry => (entry.OccurredAt, Text: $"{entry.OccurredAt:HH:mm:ss}  INF  Xray · {entry.Message}")))
+                .Concat(openVpnLogs)
                 .OrderBy(entry => entry.OccurredAt)
                 .Select(entry => entry.Text)
                 .TakeLast(120)
@@ -1002,6 +1013,10 @@ public sealed class PaqetFireRuntime(
             {
                 throw new ConfigurationValidationException(errors);
             }
+
+            var isOpenVpnActive = settings.UpstreamOpenVpn.Enabled &&
+                                  !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText);
+            connectionController.IsOpenVpnEnabled = isOpenVpnActive;
 
             var settingsKey = CreateSettingsKey(settings);
             var status = await connectionController.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -1600,6 +1615,8 @@ public sealed class PaqetFireRuntime(
                    (routingData is null
                        ? RoutingDataSet.Bundled
                        : await routingData.ResolveForLaunchAsync(cancellationToken).ConfigureAwait(false));
+        var isOpenVpnActive = settings.UpstreamOpenVpn.Enabled &&
+                              !string.IsNullOrWhiteSpace(settings.UpstreamOpenVpn.OvpnConfigText);
         var blockMalware = settings.BlockMalware && data.SupportsMalwareCategories;
         var paqetText = paqetWriter.Write(paqetProfile, settings.TransportKey);
         var xrayText = xrayWriter.Write(new XrayRoutingPolicy(
@@ -1625,7 +1642,26 @@ public sealed class PaqetFireRuntime(
                 ResolveIpv6: resolveIpv6,
                 UseFakeDns: settings.FakeDns),
             engineCredentials,
-            blockMalware));
+            blockMalware,
+            PhysicalAdapterIp: network.LocalIpv4Address,
+            IsOpenVpnActive: isOpenVpnActive));
+
+        string? openVpnText = null;
+        string? protonAuthText = null;
+        string? socksAuthText = null;
+        if (isOpenVpnActive)
+        {
+            protonAuthText = $"{settings.UpstreamOpenVpn.Username}\n{settings.UpstreamOpenVpn.Password}\n";
+            socksAuthText = $"{engineCredentials.Username}\n{engineCredentials.Password}\n";
+            var writer = openVpnWriter ?? new OpenVpnConfigurationWriter();
+            openVpnText = writer.GenerateRuntimeConfig(
+                settings.UpstreamOpenVpn.OvpnConfigText!,
+                1080,
+                paths.ResolvedOpenVpnAuthPath,
+                paths.ResolvedOpenVpnSocksAuthPath,
+                "PaqetFire-VPN");
+        }
+
         return new EngineConfigurationSet(
             paqetText,
             xrayText,
@@ -1635,7 +1671,10 @@ public sealed class PaqetFireRuntime(
             NetworkFingerprint.From(network, hotspotAddress),
             notices.Count == 0 ? null : string.Join(" ", notices),
             data,
-            blockMalware);
+            blockMalware,
+            openVpnText,
+            protonAuthText,
+            socksAuthText);
     }
 
     private async ValueTask WriteEngineConfigurationsAsync(
@@ -1648,6 +1687,23 @@ public sealed class PaqetFireRuntime(
             .ConfigureAwait(false);
         await configurationStore.WriteAsync(paths.XrayConfigurationPath, configuration.XrayText, cancellationToken)
             .ConfigureAwait(false);
+        if (configuration.OpenVpnText is not null)
+        {
+            var openVpnDir = Path.GetDirectoryName(paths.ResolvedOpenVpnConfigPath);
+            if (!string.IsNullOrEmpty(openVpnDir))
+            {
+                Directory.CreateDirectory(openVpnDir);
+            }
+            if (configuration.ProtonAuthText is not null)
+            {
+                await File.WriteAllTextAsync(paths.ResolvedOpenVpnAuthPath, configuration.ProtonAuthText, cancellationToken).ConfigureAwait(false);
+            }
+            if (configuration.SocksAuthText is not null)
+            {
+                await File.WriteAllTextAsync(paths.ResolvedOpenVpnSocksAuthPath, configuration.SocksAuthText, cancellationToken).ConfigureAwait(false);
+            }
+            await File.WriteAllTextAsync(paths.ResolvedOpenVpnConfigPath, configuration.OpenVpnText, cancellationToken).ConfigureAwait(false);
+        }
         xrayAdapter.UseRoutingData(configuration.RoutingData);
     }
 
@@ -1808,15 +1864,16 @@ public sealed class PaqetFireRuntime(
             Username: engineCredentials.Username,
             Password: engineCredentials.Password);
         var brokerExecutablePath = Path.Combine(AppContext.BaseDirectory, "PaqetFire.Broker.exe");
+        var openVpnExe = paths.OpenVpnExecutablePath ?? OpenVpnLocator.FindExecutable(paths.PayloadRoot) ?? "openvpn.exe";
         var lockedExclusions = RoutingPolicyCompiler.CreateLockedExclusions(
             paths.PaqetExecutablePath,
             paths.ProxiFyreExecutablePath,
-            [paths.XrayExecutablePath, brokerExecutablePath]);
+            [paths.XrayExecutablePath, brokerExecutablePath, openVpnExe]);
         var routePlan = RoutingPolicyCompiler.Compile(
             policy,
             paths.PaqetExecutablePath,
             paths.ProxiFyreExecutablePath,
-            [paths.XrayExecutablePath, brokerExecutablePath]);
+            [paths.XrayExecutablePath, brokerExecutablePath, openVpnExe]);
         return proxiFyreWriter.Write(routePlan, lockedExclusions);
     }
 
@@ -1853,13 +1910,26 @@ public sealed class PaqetFireRuntime(
             .Select(entry => (
                 entry.OccurredAt,
                 Text: $"{entry.OccurredAt:HH:mm:ss}  INF  Xray · {entry.Message}"));
+        var openVpnLogs = openVpnAdapter?.GetRecentLogs()
+            .TakeLast(30)
+            .Select(entry => (
+                entry.OccurredAt,
+                Text: $"{entry.OccurredAt:HH:mm:ss}  {(entry.IsError ? "ERR" : "INF")}  OpenVPN · {entry.Message}"))
+            ?? Enumerable.Empty<(DateTimeOffset OccurredAt, string Text)>();
         var logs = TakeRecentLogsWithinBudget(paqetLogs
             .Concat(xrayLogs)
+            .Concat(openVpnLogs)
             .OrderBy(entry => entry.OccurredAt)
             .Select(entry => entry.Text));
 
+        List<EngineStatus> engines = [status.Paqet, status.Xray, status.ProxiFyre];
+        if (status.OpenVpn is not null)
+        {
+            engines.Add(status.OpenVpn);
+        }
+
         return new BrokerSnapshot(
-            [status.Paqet, status.Xray, status.ProxiFyre],
+            engines,
             IsRouting: status.State == ConnectionState.Connected,
             IsKillSwitchEnabled: settings?.KillSwitchEnabled == true &&
                                  status.ProxiFyre.State == EngineState.Running,
@@ -2057,7 +2127,8 @@ public sealed class PaqetFireRuntime(
         string XrayText,
         bool ResolveIpv6,
         RoutingDataSet RoutingData,
-        bool BlockMalware)
+        bool BlockMalware,
+        string? OpenVpnText = null)
     {
         public static ActiveRoute From(string settingsKey, EngineConfigurationSet configuration) => new(
             settingsKey,
@@ -2065,7 +2136,8 @@ public sealed class PaqetFireRuntime(
             configuration.XrayText,
             configuration.ResolveIpv6,
             configuration.RoutingData,
-            configuration.BlockMalware);
+            configuration.BlockMalware,
+            configuration.OpenVpnText);
     }
 
     private sealed record EngineConfigurationSet(
@@ -2077,7 +2149,10 @@ public sealed class PaqetFireRuntime(
         NetworkFingerprint Fingerprint,
         string? Notice,
         RoutingDataSet RoutingData,
-        bool BlockMalware);
+        bool BlockMalware,
+        string? OpenVpnText = null,
+        string? ProtonAuthText = null,
+        string? SocksAuthText = null);
 }
 
 /// <summary>The network details the engines are configured from; any change may need a restart.</summary>
@@ -2108,7 +2183,21 @@ public sealed record RuntimePaths(
     string XrayGeoSitePath,
     string ProxiFyreExecutablePath,
     string ProxiFyreConfigurationPath,
-    string MachineSettingsPath);
+    string MachineSettingsPath,
+    string? OpenVpnExecutablePath = null,
+    string? OpenVpnConfigurationPath = null,
+    string? OpenVpnAuthPath = null,
+    string? OpenVpnSocksAuthPath = null)
+{
+    public string ResolvedOpenVpnConfigPath =>
+        OpenVpnConfigurationPath ?? Path.Combine(Path.GetDirectoryName(MachineSettingsPath)!, "openvpn", "runtime.ovpn");
+
+    public string ResolvedOpenVpnAuthPath =>
+        OpenVpnAuthPath ?? Path.Combine(Path.GetDirectoryName(MachineSettingsPath)!, "openvpn", "proton-auth.txt");
+
+    public string ResolvedOpenVpnSocksAuthPath =>
+        OpenVpnSocksAuthPath ?? Path.Combine(Path.GetDirectoryName(MachineSettingsPath)!, "openvpn", "socks-auth.txt");
+}
 
 /// <summary>A request was cancelled, typically by a Disconnect, before it took effect.</summary>
 public sealed class BrokerOperationCancelledException(string message) : InvalidOperationException(message);

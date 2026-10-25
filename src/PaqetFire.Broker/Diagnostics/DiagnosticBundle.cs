@@ -55,7 +55,12 @@ public static class DiagnosticBundle
             : string.Empty;
         text.AppendLine(CultureInfo.InvariantCulture,
             $"Tunnel: {input.Tunnel.State} · consecutive failures {input.Tunnel.ConsecutiveFailures} · restarts {input.Tunnel.RecoveryAttempts}{lastSuccess}");
-        foreach (var engine in new[] { input.Connection.Paqet, input.Connection.Xray, input.Connection.ProxiFyre })
+        List<EngineStatus> engines = [input.Connection.Paqet, input.Connection.Xray, input.Connection.ProxiFyre];
+        if (input.Connection.OpenVpn is not null)
+        {
+            engines.Add(input.Connection.OpenVpn);
+        }
+        foreach (var engine in engines)
         {
             var engineDetail = engine.Detail is null ? string.Empty : " · " + engine.Detail;
             text.AppendLine(CultureInfo.InvariantCulture,

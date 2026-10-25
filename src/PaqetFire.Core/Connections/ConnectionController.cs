@@ -10,6 +10,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
     private readonly IEngineAdapter _xray;
     private readonly IEngineAdapter _proxiFyre;
     private readonly IEngineAdapter? _openVpn;
+    public bool IsOpenVpnEnabled { get; set; }
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private ConnectionState? _transitionState;
     private bool _disposed;
@@ -52,6 +53,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         _xray = xray;
         _proxiFyre = proxiFyre;
         _openVpn = openVpn;
+        IsOpenVpnEnabled = openVpn is not null;
     }
 
     // Deliberately does not take the transition gate so the desktop can observe a long
@@ -121,7 +123,7 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             var failedEngine = carrierEngine;
             var error = carrierError;
 
-            if (error is null && _openVpn is not null && !openVpnInitiallyRunning)
+            if (error is null && _openVpn is not null && IsOpenVpnEnabled && !openVpnInitiallyRunning)
             {
                 try
                 {
@@ -520,24 +522,24 @@ public sealed class ConnectionController : IConnectionController, IDisposable
         }
     }
 
-    private static ConnectionState DeriveState(
+    private ConnectionState DeriveState(
         EngineState paqet,
         EngineState xray,
         EngineState proxiFyre,
         EngineState? openVpn = null)
     {
-        if (paqet == EngineState.NotInstalled || xray == EngineState.NotInstalled || proxiFyre == EngineState.NotInstalled || openVpn == EngineState.NotInstalled)
+        if (paqet == EngineState.NotInstalled || xray == EngineState.NotInstalled || proxiFyre == EngineState.NotInstalled || (IsOpenVpnEnabled && openVpn == EngineState.NotInstalled))
         {
             return ConnectionState.NotReady;
         }
 
-        var vpnOk = openVpn is null or EngineState.Running;
+        var vpnOk = !IsOpenVpnEnabled || openVpn == EngineState.Running;
         if (paqet == EngineState.Running && xray == EngineState.Running && proxiFyre == EngineState.Running && vpnOk)
         {
             return ConnectionState.Connected;
         }
 
-        var vpnStopped = openVpn is null or EngineState.Stopped;
+        var vpnStopped = !IsOpenVpnEnabled || openVpn is null or EngineState.Stopped;
         if (paqet == EngineState.Stopped && xray == EngineState.Stopped && proxiFyre == EngineState.Stopped && vpnStopped)
         {
             return ConnectionState.Disconnected;
@@ -548,17 +550,17 @@ public sealed class ConnectionController : IConnectionController, IDisposable
             return ConnectionState.Guarded;
         }
 
-        if (paqet == EngineState.Faulted || xray == EngineState.Faulted || proxiFyre == EngineState.Faulted || openVpn == EngineState.Faulted)
+        if (paqet == EngineState.Faulted || xray == EngineState.Faulted || proxiFyre == EngineState.Faulted || (IsOpenVpnEnabled && openVpn == EngineState.Faulted))
         {
             return ConnectionState.Faulted;
         }
 
-        if (paqet == EngineState.Starting || xray == EngineState.Starting || proxiFyre == EngineState.Starting || openVpn == EngineState.Starting)
+        if (paqet == EngineState.Starting || xray == EngineState.Starting || proxiFyre == EngineState.Starting || (IsOpenVpnEnabled && openVpn == EngineState.Starting))
         {
             return ConnectionState.Connecting;
         }
 
-        if (paqet == EngineState.Stopping || xray == EngineState.Stopping || proxiFyre == EngineState.Stopping || openVpn == EngineState.Stopping)
+        if (paqet == EngineState.Stopping || xray == EngineState.Stopping || proxiFyre == EngineState.Stopping || (IsOpenVpnEnabled && openVpn == EngineState.Stopping))
         {
             return ConnectionState.Disconnecting;
         }

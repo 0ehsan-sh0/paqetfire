@@ -455,6 +455,8 @@ internal sealed class ScriptedController : IConnectionController
     public EngineState Xray { get; set; } = EngineState.Stopped;
 
     public EngineState ProxiFyre { get; set; } = EngineState.Stopped;
+    public bool IsOpenVpnEnabled { get; set; }
+
 
     public bool FailRestart { get; set; }
 

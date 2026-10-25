@@ -4,6 +4,13 @@ namespace PaqetFire.Core.Connections;
 
 public interface IConnectionController
 {
+    /// <summary>Whether Upstream OpenVPN is active for the current route.</summary>
+    bool IsOpenVpnEnabled
+    {
+        get => false;
+        set { }
+    }
+
     ValueTask<ConnectionStatus> GetStatusAsync(CancellationToken cancellationToken);
 
     ValueTask ConnectAsync(CancellationToken cancellationToken);

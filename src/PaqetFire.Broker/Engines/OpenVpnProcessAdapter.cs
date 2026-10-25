@@ -10,6 +10,7 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
     private readonly OpenVpnProcessOptions options;
     private readonly SemaphoreSlim lifecycleGate = new(1, 1);
     private readonly object stateLock = new();
+    private readonly List<(DateTimeOffset OccurredAt, string Message, bool IsError)> _logs = new();
     private Process? process;
     private EngineState state = EngineState.Stopped;
     private string? detail = "OpenVPN is stopped.";
@@ -25,6 +26,14 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
     public EngineKind Kind => EngineKind.OpenVpn;
 
     public event EventHandler? UnexpectedExit;
+
+    public IReadOnlyList<(DateTimeOffset OccurredAt, string Message, bool IsError)> GetRecentLogs()
+    {
+        lock (stateLock)
+        {
+            return [.. _logs];
+        }
+    }
 
     public ValueTask<EngineStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
@@ -98,6 +107,15 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
                 throw new InvalidOperationException("Windows did not start the OpenVPN process.");
             }
 
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            void HandleEarlyExit(object? sender, EventArgs e)
+            {
+                var exitCode = sender is Process p ? p.ExitCode : -1;
+                tcs.TrySetException(new InvalidOperationException($"OpenVPN process exited prematurely with code {exitCode}."));
+            }
+
+            started.Exited += HandleEarlyExit;
             started.Exited += HandleExited;
             lock (stateLock)
             {
@@ -105,11 +123,18 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
                 expectedExit = false;
             }
 
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            void CheckLine(string? line)
+            void CheckLine(string? line, bool isError)
             {
                 if (line is null) return;
+                lock (stateLock)
+                {
+                    if (_logs.Count >= 200)
+                    {
+                        _logs.RemoveAt(0);
+                    }
+                    _logs.Add((DateTimeOffset.UtcNow, line, isError));
+                }
+
                 if (line.Contains("Initialization Sequence Completed", StringComparison.OrdinalIgnoreCase))
                 {
                     tcs.TrySetResult(true);
@@ -123,21 +148,33 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
 
             _ = Task.Run(async () =>
             {
-                while (!started.HasExited)
+                try
                 {
-                    var line = await started.StandardOutput.ReadLineAsync().ConfigureAwait(false);
-                    CheckLine(line);
+                    while (await started.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line)
+                    {
+                        CheckLine(line, isError: false);
+                    }
                 }
-            }, cancellationToken);
+                catch
+                {
+                    // Stream closed
+                }
+            });
 
             _ = Task.Run(async () =>
             {
-                while (!started.HasExited)
+                try
                 {
-                    var line = await started.StandardError.ReadLineAsync().ConfigureAwait(false);
-                    CheckLine(line);
+                    while (await started.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line)
+                    {
+                        CheckLine(line, isError: true);
+                    }
                 }
-            }, cancellationToken);
+                catch
+                {
+                    // Stream closed
+                }
+            });
 
             try
             {
@@ -166,6 +203,10 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
                     }
                 }
                 throw;
+            }
+            finally
+            {
+                started.Exited -= HandleEarlyExit;
             }
         }
         catch (OperationCanceledException)
