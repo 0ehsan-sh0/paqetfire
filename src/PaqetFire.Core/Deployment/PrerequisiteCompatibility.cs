@@ -10,6 +10,8 @@ public static class PrerequisiteCompatibility
 
     public static Version MinimumWindowsPacketFilterVersion { get; } = new(3, 6, 1, 0);
 
+    public static Version MinimumOpenVpnDcoVersion { get; } = new(2, 8, 0);
+
     public static bool IsSupportedDotNetFrameworkRelease(int release) =>
         release >= MinimumDotNetFrameworkRelease;
 
@@ -23,6 +25,12 @@ public static class PrerequisiteCompatibility
         version is not null &&
         version >= MinimumWindowsPacketFilterVersion &&
         version.Major < 4;
+
+    public static bool IsSupportedOpenVpnDcoVersion(Version? version) =>
+        version is not null && version >= MinimumOpenVpnDcoVersion;
+
+    public static bool IsSupportedOpenVpnDcoVersion(string? version) =>
+        version is not null && Version.TryParse(version, out var parsed) && parsed >= MinimumOpenVpnDcoVersion;
 
     public static Version? ParseWindowsFileVersion(string? value)
     {

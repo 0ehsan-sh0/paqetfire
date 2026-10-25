@@ -10,6 +10,7 @@ public sealed class PrerequisiteInspector
     private static readonly Uri WinpkFilterHelp = new("https://github.com/wiresock/ndisapi/releases/tag/v3.6.2");
     private static readonly Uri VisualCppHelp = new("https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist");
     private static readonly Uri DotNetFrameworkHelp = new("https://dotnet.microsoft.com/en-us/download/dotnet-framework/net472");
+    private static readonly Uri OpenVpnDcoHelp = new("https://github.com/OpenVPN/ovpn-dco-win");
 
     private readonly Func<IReadOnlyList<PrerequisiteStatus>>? inspect;
 
@@ -27,6 +28,7 @@ public sealed class PrerequisiteInspector
         InspectWinpkFilter(),
         InspectVisualCppRuntime(),
         InspectDotNetFramework(),
+        InspectOpenVpnDco(),
     ];
 
     private static PrerequisiteStatus InspectNpcap()
@@ -108,6 +110,23 @@ public sealed class PrerequisiteInspector
                 ? $"Compatible .NET Framework detected (release {release})."
                 : "Required by ProxiFyre. Install .NET Framework 4.7.2 or newer.",
             DotNetFrameworkHelp);
+    }
+
+    private static PrerequisiteStatus InspectOpenVpnDco()
+    {
+        var driverPath = Path.Combine(Environment.SystemDirectory, "drivers", "ovpn-dco.sys");
+        var version = TryReadFileVersion(driverPath);
+        var installed = PrerequisiteCompatibility.IsSupportedOpenVpnDcoVersion(version);
+        return new PrerequisiteStatus(
+            "ovpn-dco",
+            "OpenVPN Data Channel Offload driver",
+            installed,
+            installed
+                ? $"Compatible DCO driver detected (version {version})."
+                : version is null
+                    ? "Required for Upstream OpenVPN. The driver is bundled and installed automatically."
+                    : $"Driver version {version} is incompatible. OpenVPN requires DCO 2.8.0 or newer.",
+            OpenVpnDcoHelp);
     }
 
     private static Version? TryReadFileVersion(string path)

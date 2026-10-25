@@ -47,4 +47,14 @@ public sealed class PrerequisiteCompatibilityTests
         Assert.Equal(
             expected,
             PrerequisiteCompatibility.IsSupportedWindowsPacketFilterVersion(Version.Parse(version)));
+
+    [Theory]
+    [InlineData("2.7.9", false)]
+    [InlineData("2.8.0", true)]
+    [InlineData("2.8.14", true)]
+    [InlineData("3.0.0", true)]
+    public void OpenVpnDcoVersionRequiresCompatible28xOrNewer(string version, bool expected) =>
+        Assert.Equal(
+            expected,
+            PrerequisiteCompatibility.IsSupportedOpenVpnDcoVersion(version));
 }

@@ -1695,6 +1695,7 @@ public sealed class PaqetFireRuntime(
             .ConfigureAwait(false);
         if (configuration.OpenVpnText is not null)
         {
+            await OpenVpnDriverInstaller.EnsureDriverInstalledAsync(paths.PayloadRoot, logger).ConfigureAwait(false);
             var openVpnDir = Path.GetDirectoryName(paths.ResolvedOpenVpnConfigPath);
             if (!string.IsNullOrEmpty(openVpnDir))
             {
