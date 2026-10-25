@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace PaqetFire.Broker.Engines;
 
@@ -11,12 +13,15 @@ internal static class OrphanedEngineCleanup
 {
     private static readonly TimeSpan ExitTimeout = TimeSpan.FromSeconds(5);
 
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetLongPathNameW")]
+    private static extern uint GetLongPathName(string lpszShortPath, [Out] StringBuilder lpszLongPath, uint cchBuffer);
+
     public static async ValueTask<IReadOnlyList<string>> TerminateAsync(
         IEnumerable<string> executablePaths,
         CancellationToken cancellationToken)
     {
         var stopped = new List<string>();
-        foreach (var path in executablePaths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var path in executablePaths.Select(Normalize).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(path)))
             {
@@ -49,13 +54,65 @@ internal static class OrphanedEngineCleanup
 
     private static bool IsAt(Process process, string path)
     {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                var processPath = process.MainModule?.FileName;
+                if (string.IsNullOrEmpty(processPath))
+                {
+                    return false;
+                }
+
+                if (string.Equals(processPath, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                var normalizedProcessPath = Normalize(processPath);
+                return string.Equals(normalizedProcessPath, path, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Win32Exception) when (attempt < 4 && !process.HasExited)
+            {
+                Thread.Sleep(15);
+            }
+            catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    internal static string Normalize(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (!OperatingSystem.IsWindows())
+        {
+            return fullPath;
+        }
+
         try
         {
-            return string.Equals(process.MainModule?.FileName, path, StringComparison.OrdinalIgnoreCase);
+            var builder = new StringBuilder(1024);
+            var length = GetLongPathName(fullPath, builder, (uint)builder.Capacity);
+            if (length > builder.Capacity)
+            {
+                builder.EnsureCapacity((int)length);
+                length = GetLongPathName(fullPath, builder, (uint)builder.Capacity);
+            }
+
+            if (length > 0)
+            {
+                return builder.ToString();
+            }
         }
-        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
+        catch
         {
-            return false;
+            // Fall back to original fullPath
         }
+
+        return fullPath;
     }
 }

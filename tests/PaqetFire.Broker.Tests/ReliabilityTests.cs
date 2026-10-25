@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -87,6 +88,22 @@ public sealed class ReliabilityTests
         using var unrelated = Process.Start(new ProcessStartInfo(system, "-t 127.0.0.1") { CreateNoWindow = true })!;
         try
         {
+            var readyDeadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < readyDeadline)
+            {
+                try
+                {
+                    if (orphan.MainModule?.FileName is not null && unrelated.MainModule?.FileName is not null)
+                    {
+                        break;
+                    }
+                }
+                catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
+                {
+                    await Task.Delay(20);
+                }
+            }
+
             var stopped = await OrphanedEngineCleanup.TerminateAsync([installed], CancellationToken.None);
 
             Assert.Equal(["ping.exe"], stopped);
@@ -101,6 +118,15 @@ public sealed class ReliabilityTests
             await orphan.WaitForExitAsync();
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void NormalizeExpandsPathsConsistently()
+    {
+        var temp = Path.GetTempPath();
+        var normalized = OrphanedEngineCleanup.Normalize(temp);
+        Assert.False(string.IsNullOrWhiteSpace(normalized));
+        Assert.True(Path.IsPathRooted(normalized));
     }
 
     [Fact]
