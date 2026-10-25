@@ -7,8 +7,8 @@
     <ProductVersion Condition="'$(ProductVersion)' == ''">$(PaqetFireVersion)</ProductVersion>
     <OutputName>PaqetFire-$(ProductVersion)-x64</OutputName>
     <OutputPath>..\..\artifacts\installer\</OutputPath>
-    <!-- .NET 10 native runtime files expose non-MSI language metadata. -->
-    <SuppressIces>ICE03</SuppressIces>
+    <!-- .NET 10 native runtime files and bundled third-party drivers expose non-MSI language metadata. -->
+    <SuppressIces>ICE03;ICE60</SuppressIces>
     <DesktopPublishDir>$(MSBuildThisFileDirectory)..\..\artifacts\publish\win-x64\desktop</DesktopPublishDir>
     <BrokerPublishDir>$(MSBuildThisFileDirectory)..\..\artifacts\publish\win-x64\broker</BrokerPublishDir>
     <!--
