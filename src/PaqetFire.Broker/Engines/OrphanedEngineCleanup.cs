@@ -49,6 +49,11 @@ internal static class OrphanedEngineCleanup
             }
         }
 
+        if (stopped.Any(name => name.Equals("openvpn.exe", StringComparison.OrdinalIgnoreCase)))
+        {
+            OpenVpnProcessAdapter.CleanupLingeringRoutes();
+        }
+
         return stopped;
     }
 

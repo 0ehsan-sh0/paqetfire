@@ -340,6 +340,7 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
 
         if (unexpected)
         {
+            CleanupLingeringRoutes();
             UnexpectedExit?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -350,6 +351,7 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
         {
             exitEvent?.Dispose();
             process.Dispose();
+            CleanupLingeringRoutes();
             return;
         }
 
@@ -389,6 +391,42 @@ public sealed class OpenVpnProcessAdapter : IEngineAdapter, IDisposable
         {
             exitEvent?.Dispose();
             process.Dispose();
+            CleanupLingeringRoutes();
+        }
+    }
+
+    internal static void CleanupLingeringRoutes()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            // Remove /1 redirect-gateway routes that may have been left behind by OpenVPN if killed or crashed abruptly.
+            // 0.0.0.0/1 (mask 128.0.0.0) and 128.0.0.0/1 (mask 128.0.0.0)
+            using var proc1 = Process.Start(new ProcessStartInfo
+            {
+                FileName = Path.Combine(Environment.SystemDirectory, "route.exe"),
+                Arguments = "delete 0.0.0.0 mask 128.0.0.0",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            });
+            proc1?.WaitForExit(1000);
+
+            using var proc2 = Process.Start(new ProcessStartInfo
+            {
+                FileName = Path.Combine(Environment.SystemDirectory, "route.exe"),
+                Arguments = "delete 128.0.0.0 mask 128.0.0.0",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            });
+            proc2?.WaitForExit(1000);
+        }
+        catch
+        {
+            // Best effort route cleanup
         }
     }
 }

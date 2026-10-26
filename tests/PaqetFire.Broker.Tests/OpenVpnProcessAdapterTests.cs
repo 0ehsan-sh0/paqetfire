@@ -76,4 +76,11 @@ public sealed class OpenVpnProcessAdapterTests
             File.Delete(tempConfig);
         }
     }
+
+    [Fact]
+    public void CleanupLingeringRoutes_ExecutesSafelyWithoutThrowing()
+    {
+        var exception = Record.Exception(() => OpenVpnProcessAdapter.CleanupLingeringRoutes());
+        Assert.Null(exception);
+    }
 }
