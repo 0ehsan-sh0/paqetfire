@@ -67,4 +67,17 @@ public sealed class RuntimeOpenVpnTests
         Assert.Equal(3, snapshot.Engines.Count);
         Assert.DoesNotContain(snapshot.Engines, e => e.Engine == EngineKind.OpenVpn);
     }
+
+    [Fact]
+    public async Task ConnectAsync_WhenConflictingVpnRunning_ThrowsInvalidOperationException()
+    {
+        await using var fixture = await RuntimeFixture.StartAsync(settings => settings);
+        fixture.VpnConflictDetector.ConflictingProcess = @"OpenVPN at C:\Program Files\OpenVPN\bin\openvpn.exe (PID 9999)";
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Runtime.ConnectAsync(CancellationToken.None).AsTask());
+
+        Assert.Contains("Another VPN client is currently running", exception.Message);
+        Assert.Contains("PID 9999", exception.Message);
+    }
 }

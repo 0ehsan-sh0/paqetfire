@@ -29,6 +29,7 @@ var payloadRoot = Path.Combine(AppContext.BaseDirectory, "payload");
 var paqetRoot = Path.Combine(payloadRoot, "engines", "paqet", "x64");
 var xrayRoot = Path.Combine(payloadRoot, "engines", "xray", "x64");
 var proxiFyreRoot = Path.Combine(payloadRoot, "engines", "proxifyre", "x64");
+var openVpnExe = OpenVpnLocator.FindExecutable(payloadRoot);
 var paths = new RuntimePaths(
     payloadRoot,
     Path.Combine(paqetRoot, "paqet_windows_amd64.exe"),
@@ -42,7 +43,8 @@ var paths = new RuntimePaths(
     Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "PaqetFire",
-        "settings.json"));
+        "settings.json"),
+    OpenVpnExecutablePath: openVpnExe);
 var dataDirectory = Path.GetDirectoryName(paths.MachineSettingsPath)!;
 
 builder.Services.AddSingleton(paths);
@@ -73,6 +75,7 @@ builder.Services.AddSingleton<IBrokerStateStore>(services => new BrokerStateStor
     services.GetRequiredService<ProtectedDirectory>()));
 builder.Services.AddSingleton<PayloadIntegrityInspector>();
 builder.Services.AddSingleton<PrerequisiteInspector>();
+builder.Services.AddSingleton<IVpnConflictDetector, ProcessVpnConflictDetector>();
 builder.Services.AddSingleton<IFirewallRuleStore, WindowsFirewallRuleStore>();
 builder.Services.AddSingleton<EngineFirewallRules>();
 builder.Services.AddSingleton<NetworkEnvironmentDetector>();
@@ -137,7 +140,6 @@ builder.Services.AddSingleton(services =>
 });
 var openVpnConfigPath = Path.Combine(dataDirectory, "openvpn", "runtime.ovpn");
 var openVpnAuthPath = Path.Combine(dataDirectory, "openvpn", "proton-auth.txt");
-var openVpnExe = OpenVpnLocator.FindExecutable(paths.PayloadRoot);
 builder.Services.AddSingleton(services =>
 {
     var options = BundledEngineOptions.CreateOpenVpn(

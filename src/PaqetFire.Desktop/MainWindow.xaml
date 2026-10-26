@@ -517,7 +517,7 @@
                   <StackPanel x:Name="UpstreamOpenVpnOptionsPanel" Spacing="14" Visibility="Collapsed">
                     <InfoBar x:Name="ProtonVpnHelpBar" IsOpen="True" IsClosable="False" Severity="Informational"
                              Title="Free Proton VPN Setup"
-                             Message="Requires a free Proton account. In the Proton dashboard, select Windows as the platform and TCP as the protocol when downloading the configuration file (TCP is required; UDP will not work through the intermediate proxy). Enter your OpenVPN / IKEv2 credentials, not your Proton login password.">
+                             Message="Requires a free Proton account. In the Proton dashboard, select Windows as the platform and TCP as the protocol when downloading the configuration file (TCP is required; UDP will not work through the intermediate proxy). Enter your OpenVPN / IKEv2 credentials, not your Proton login password. Important: Ensure any standalone VPN clients (such as Proton VPN app or OpenVPN GUI) are disconnected and closed to prevent Windows firewall and network adapter conflicts.">
                       <InfoBar.ActionButton>
                         <HyperlinkButton Content="Open Proton VPN Setup Guide" Click="OpenProtonVpnGuide_Click" />
                       </InfoBar.ActionButton>

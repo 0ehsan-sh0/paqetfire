@@ -328,7 +328,8 @@ internal sealed class RuntimeFixture : IAsyncDisposable
             Progress,
             ipv6Probe,
             Clock,
-            routingData);
+            routingData,
+            vpnConflictDetector: VpnConflictDetector);
     }
 
     public XrayProcessAdapter XrayAdapter => xray;
@@ -338,6 +339,7 @@ internal sealed class RuntimeFixture : IAsyncDisposable
     public PaqetFireRuntime Runtime { get; }
 
     public ScriptedController Controller { get; } = new();
+    public ScriptedVpnConflictDetector VpnConflictDetector { get; } = new();
 
     public RecordingConfigurations Configurations { get; } = new();
 
@@ -555,5 +557,24 @@ internal sealed class ScriptedController : IConnectionController
         }
 
         return ValueTask.CompletedTask;
+    }
+}
+
+internal sealed class ScriptedVpnConflictDetector : IVpnConflictDetector
+{
+    public string? ConflictingProcess { get; set; }
+
+    public bool TryFindConflictingVpn(
+        string? allowedOpenVpnExecutablePath,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? conflictDescription)
+    {
+        if (!string.IsNullOrEmpty(ConflictingProcess))
+        {
+            conflictDescription = ConflictingProcess;
+            return true;
+        }
+
+        conflictDescription = null;
+        return false;
     }
 }

@@ -49,7 +49,8 @@ public sealed class PaqetFireRuntime(
     TimeProvider? timeProvider = null,
     RoutingDataService? routingData = null,
     OpenVpnProcessAdapter? openVpnAdapter = null,
-    IOpenVpnConfigurationWriter? openVpnWriter = null) : IPaqetFireRuntime
+    IOpenVpnConfigurationWriter? openVpnWriter = null,
+    IVpnConflictDetector? vpnConflictDetector = null) : IPaqetFireRuntime
 {
     private const int RecentLogBudgetBytes = 24 * 1024;
     private static readonly TimeSpan SystemResolverTimeout = TimeSpan.FromMilliseconds(1500);
@@ -244,6 +245,7 @@ public sealed class PaqetFireRuntime(
             if (reconnect)
             {
                 EnsurePrerequisitesAvailable(isOpenVpnActive);
+                EnsureNoConflictingVpnRunning();
                 progress.Begin(ConnectionStage.Preparing);
             }
 
@@ -619,6 +621,7 @@ public sealed class PaqetFireRuntime(
             {
                 var isProfileOpenVpnActive = selected.UpstreamOpenVpn.Enabled && !string.IsNullOrWhiteSpace(selected.UpstreamOpenVpn.OvpnConfigText);
                 EnsurePrerequisitesAvailable(isProfileOpenVpnActive);
+                EnsureNoConflictingVpnRunning();
                 recovery.Reset();
                 progress.Begin(ConnectionStage.Preparing);
                 EngineConfigurationSet? configuration = null;
@@ -989,6 +992,18 @@ public sealed class PaqetFireRuntime(
                 notes.Add($"Running Xray data: {(runningData.IsUpdated ? runningData.Version : "bundled")} · malware blocking {(activeRoute.BlockMalware ? "active" : "inactive")}");
             }
 
+            if (logs.Any(line => line.Contains("2150891551", StringComparison.Ordinal) || line.Contains("PacketSendPacket failed", StringComparison.OrdinalIgnoreCase)))
+            {
+                notes.Add("Windows Filtering Platform blocked raw packet injection (error 2150891551). Verify that no external VPN (such as OpenVPN GUI or Proton VPN) is active or recently exited without clearing firewall rules.");
+            }
+
+            var allowedOpenVpn = paths.OpenVpnExecutablePath ?? OpenVpnLocator.FindExecutable(paths.PayloadRoot);
+            var detector = vpnConflictDetector ?? ProcessVpnConflictDetector.Instance;
+            if (detector.TryFindConflictingVpn(allowedOpenVpn, out var conflictingVpn))
+            {
+                notes.Add($"Conflicting VPN software detected: {conflictingVpn}.");
+            }
+
             return DiagnosticBundle.Build(new DiagnosticBundleInput(
                     settings is null ? null : Normalize(settings),
                     profileCatalog?.Profiles.Count ?? 0,
@@ -1047,6 +1062,7 @@ public sealed class PaqetFireRuntime(
             }
 
             EnsurePrerequisitesAvailable(isOpenVpnActive);
+            EnsureNoConflictingVpnRunning();
 
             progress.Advance(ConnectionStage.VerifyingPayload);
             var inspection = await payloadInspector.InspectAsync(cancellationToken).ConfigureAwait(false);
@@ -2094,6 +2110,17 @@ public sealed class PaqetFireRuntime(
 
         // Runs alongside the connect; ProxiFyre waits for it before it starts capturing.
         _ = engineFirewallRules.EnsureRepairedAsync();
+    }
+
+    private void EnsureNoConflictingVpnRunning()
+    {
+        var detector = vpnConflictDetector ?? ProcessVpnConflictDetector.Instance;
+        var allowedOpenVpnPath = paths.OpenVpnExecutablePath ?? OpenVpnLocator.FindExecutable(paths.PayloadRoot);
+        if (detector.TryFindConflictingVpn(allowedOpenVpnPath, out var conflicting))
+        {
+            throw new InvalidOperationException(
+                $"Another VPN client is currently running ({conflicting}). Please disconnect and close other VPN applications before connecting PaqetFire to prevent network adapter and firewall conflicts.");
+        }
     }
 
     private static IReadOnlyList<string> TakeRecentLogsWithinBudget(IEnumerable<string> source)
